@@ -18,4 +18,5 @@ public class MemoryController {
     @DeleteMapping("/memories/{id}") public Map<String,String> delete(HttpServletRequest req, @PathVariable String id) { memory.delete(AuthFilter.require(req).userId(), id); return Map.of("message", "已删除"); }
     @GetMapping("/memory-jobs") public List<MemoryService.MemoryJob> jobs(HttpServletRequest req) { return memory.jobs(AuthFilter.require(req).userId()); }
     @PostMapping("/memory-jobs/{id}/retry") public Map<String,String> retry(HttpServletRequest req, @PathVariable String id) { memory.retry(AuthFilter.require(req).userId(), id); return Map.of("message", "已重新排队"); }
+    @GetMapping("/sessions/{id}/memory-context") public MemoryService.HotContext context(HttpServletRequest req, @PathVariable String id) { return memory.context(AuthFilter.require(req).userId(), id); }
 }

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { api, getToken, setToken } from './api.js';
 import AuthPage from './components/AuthPage.vue';
 import ChatPage from './components/ChatPage.vue';
@@ -17,6 +17,8 @@ const sessions = ref([]);
 const currentUser = ref({ email: '', role: 'USER' });
 const route = ref(location.hash.slice(2) || 'chat');
 const error = ref('');
+const editingSessionId = ref('');
+const editingTitle = ref('');
 const page = computed(() => route.value.split('/')[0]);
 const sessionId = computed(() => page.value === 'chat' ? route.value.split('/')[1] || '' : '');
 const nav = [
@@ -48,6 +50,13 @@ async function deleteSession(item) {
     await refresh();
   } catch (e) { error.value = e.message; }
 }
+function beginRename(item) { editingSessionId.value = item.id; editingTitle.value = item.title; nextTick(() => document.querySelector('.session-title-input')?.focus()); }
+async function renameSession(item) {
+  const title = editingTitle.value.trim();
+  if (!title) return;
+  try { await api(`/api/sessions/${item.id}`, { method: 'PATCH', body: { title } }); editingSessionId.value = ''; await refresh(); }
+  catch (e) { error.value = e.message; }
+}
 onMounted(async () => {
   window.addEventListener('hashchange', changed);
   if (authenticated.value) {
@@ -73,7 +82,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', changed));
       <div class="session-heading"><span>最近会话</span><button class="text-button" aria-label="刷新会话" @click="refresh">刷新</button></div>
       <div class="session-list">
         <div v-for="item in sessions" :key="item.id" class="session-item" :class="{ selected: item.id === sessionId }">
-          <a :href="`#/chat/${item.id}`">{{ item.title }}</a><button class="text-button" :aria-label="`删除${item.title}`" @click="deleteSession(item)">×</button>
+          <form v-if="editingSessionId === item.id" class="session-rename" @submit.prevent="renameSession(item)"><input v-model="editingTitle" class="session-title-input" maxlength="120" aria-label="会话名称" @keydown.esc="editingSessionId=''" @blur="renameSession(item)"></form>
+          <a v-else :href="`#/chat/${item.id}`" :title="item.title">{{ item.title }}</a><button class="text-button session-action" :aria-label="`重命名${item.title}`" title="重命名" @click="beginRename(item)">✎</button><button class="text-button session-action" :aria-label="`删除${item.title}`" title="删除" @click="deleteSession(item)">×</button>
         </div>
         <p v-if="!sessions.length" class="sidebar-empty">暂无会话</p>
       </div>

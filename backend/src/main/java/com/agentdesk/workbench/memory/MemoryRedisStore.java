@@ -1,9 +1,12 @@
 package com.agentdesk.workbench.memory;
 
 import com.agentdesk.workbench.config.WorkbenchProperties;
-import io.lettuce.core.KeyValue;
+import io.lettuce.core.Consumer;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
+import io.lettuce.core.StreamMessage;
+import io.lettuce.core.XGroupCreateArgs;
+import io.lettuce.core.XReadArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -11,6 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /** Mandatory Redis infrastructure for durable memory jobs and hot recall caching. */
@@ -20,6 +25,9 @@ public class MemoryRedisStore {
     private final String prefix;
     private RedisClient client;
     private StatefulRedisConnection<String,String> connection;
+    private StatefulRedisConnection<String,String> workerConnection;
+    private static final String GROUP = "memory-workers";
+    private static final String CONSUMER = "worker-1";
 
     public MemoryRedisStore(WorkbenchProperties properties) {
         this.properties = properties;
@@ -36,19 +44,31 @@ public class MemoryRedisStore {
         try {
             client = RedisClient.create(builder.build());
             connection = client.connect();
+            workerConnection = client.connect();
             if (!"PONG".equalsIgnoreCase(connection.sync().ping())) throw new IllegalStateException("Redis PING 未返回 PONG");
+            ensureStreamGroup();
         } catch (Exception e) {
             close();
             throw new IllegalStateException("记忆系统强制依赖 Redis，但无法连接 " + properties.memoryRedisHost() + ":" + properties.memoryRedisPort(), e);
         }
     }
 
-    public void enqueue(String runId) { connection.sync().rpush(prefix + "jobs", runId); }
-
-    public String take(int timeoutSeconds) {
-        KeyValue<String,String> item = connection.sync().blpop(timeoutSeconds, prefix + "jobs");
-        return item == null || !item.hasValue() ? null : item.getValue();
+    public void enqueue(String runId) {
+        connection.sync().xadd(streamKey(), Map.of("runId", runId, "queuedAt", Long.toString(System.currentTimeMillis())));
     }
+
+    public StreamJob take(int timeoutSeconds) {
+        List<StreamMessage<String,String>> messages = workerConnection.sync().xreadgroup(
+                Consumer.from(GROUP, CONSUMER), XReadArgs.Builder.block(Duration.ofSeconds(timeoutSeconds)).count(1),
+                XReadArgs.StreamOffset.lastConsumed(streamKey()));
+        if (messages == null || messages.isEmpty()) return null;
+        StreamMessage<String,String> message = messages.get(0);
+        return new StreamJob(message.getId(), message.getBody().get("runId"));
+    }
+
+    public void acknowledge(StreamJob job) { connection.sync().xack(streamKey(), GROUP, job.messageId()); }
+
+    public long pendingJobs() { return connection.sync().xpending(streamKey(), GROUP).getCount(); }
 
     public long version(String userId) {
         String value = connection.sync().get(prefix + "version:" + userId);
@@ -69,6 +89,26 @@ public class MemoryRedisStore {
         return prefix + "recall:" + userId + ":" + version + ":" + sha256(query);
     }
 
+    public String cachedContext(String userId, String sessionId) {
+        return connection.sync().get(prefix + "context:" + userId + ":" + sessionId + ":" + version(userId));
+    }
+
+    public void cacheContext(String userId, String sessionId, String json) {
+        connection.sync().setex(prefix + "context:" + userId + ":" + sessionId + ":" + version(userId), 300, json);
+    }
+
+    private String streamKey() { return prefix + "capture:stream"; }
+
+    private void ensureStreamGroup() {
+        try {
+            connection.sync().xgroupCreate(XReadArgs.StreamOffset.from(streamKey(), "0-0"), GROUP, XGroupCreateArgs.Builder.mkstream());
+        } catch (RuntimeException e) {
+            if (e.getMessage() == null || !e.getMessage().contains("BUSYGROUP")) throw e;
+        }
+    }
+
+    public record StreamJob(String messageId, String runId) {}
+
     private static String sha256(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
         catch (Exception e) { throw new IllegalStateException("无法生成记忆缓存键", e); }
@@ -76,6 +116,7 @@ public class MemoryRedisStore {
 
     @PreDestroy
     public void close() {
+        if (workerConnection != null) { workerConnection.close(); workerConnection = null; }
         if (connection != null) { connection.close(); connection = null; }
         if (client != null) { client.shutdown(); client = null; }
     }

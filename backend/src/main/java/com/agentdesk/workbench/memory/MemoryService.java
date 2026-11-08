@@ -120,13 +120,37 @@ public class MemoryService {
     private void consume() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                String runId = redis.take(2);
-                if (runId != null) extract(runId);
+                MemoryRedisStore.StreamJob job = redis.take(2);
+                if (job != null) {
+                    extract(job.runId());
+                    redis.acknowledge(job);
+                }
             } catch (Exception e) {
                 if (Thread.currentThread().isInterrupted()) return;
                 throw new IllegalStateException("Redis 记忆队列不可用", e);
             }
         }
+    }
+
+    public HotContext context(String userId, String sessionId) {
+        String cached = redis.cachedContext(userId, sessionId);
+        if (cached != null) {
+            try {
+                HotContext value = json.readValue(cached, HotContext.class);
+                return new HotContext(value.summary(), value.persona(), value.scenes(), value.pendingJobs(), true);
+            }
+            catch (JsonProcessingException ignored) { /* rebuild corrupted/old cache */ }
+        }
+        Integer sessionCount = db.queryForObject("SELECT COUNT(*) FROM sessions WHERE id=? AND user_id=?", Integer.class, sessionId, userId);
+        if (sessionCount == null || sessionCount == 0) throw ApiException.notFound("会话不存在");
+        List<MemoryView> persona = db.query("SELECT id,layer,content,source_session_id,source_message_id,manual,status,version,created_at,updated_at FROM memories WHERE user_id=? AND layer='L3' AND status='ACTIVE' ORDER BY updated_at DESC LIMIT 5",
+                (rs, n) -> new MemoryView(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getBoolean(6), rs.getString(7), rs.getInt(8), rs.getLong(9), rs.getLong(10)), userId);
+        List<MemoryView> scenes = db.query("SELECT id,layer,content,source_session_id,source_message_id,manual,status,version,created_at,updated_at FROM memories WHERE user_id=? AND layer='L2' AND status='ACTIVE' AND (source_session_id=? OR source_session_id IS NULL) ORDER BY updated_at DESC LIMIT 5",
+                (rs, n) -> new MemoryView(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getBoolean(6), rs.getString(7), rs.getInt(8), rs.getLong(9), rs.getLong(10)), userId, sessionId);
+        String summary = scenes.stream().map(MemoryView::content).limit(3).reduce((a, b) -> a + "；" + b).orElse("暂无会话摘要");
+        HotContext result = new HotContext(summary, persona, scenes, redis.pendingJobs(), false);
+        redis.cacheContext(userId, sessionId, stringify(result));
+        return result;
     }
 
     private void extract(String runId) {
@@ -302,4 +326,5 @@ public class MemoryService {
     public record MemoryView(String id, String layer, String content, String sourceSessionId, String sourceMessageId, boolean manual, String status, int version, long createdAt, long updatedAt) {}
     public record MemoryJob(String runId, String sessionId, String status, String error, int attempts, long createdAt, long updatedAt) {}
     public record Recall(String mode, String message, List<MemoryView> memories) {}
+    public record HotContext(String summary, List<MemoryView> persona, List<MemoryView> scenes, long pendingJobs, boolean cacheHit) {}
 }
