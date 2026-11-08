@@ -1,0 +1,12 @@
+{
+  "name": "agent-workbench-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agentdesk": "bin/agentdesk.mjs",
+    "agentdesk-mysql": "bin/agentdesk-mysql.mjs",
+    "agentdesk-redis": "bin/agentdesk-redis.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

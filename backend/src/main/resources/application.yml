@@ -1,0 +1,29 @@
+server:
+  address: 127.0.0.1
+  port: ${WORKBENCH_PORT:8765}
+spring:
+  application:
+    name: agent-workbench
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
+  sql:
+    init:
+      mode: never
+workbench:
+  data-dir: ${WORKBENCH_DATA_DIR:./data}
+  key-file: ${WORKBENCH_KEY_FILE:./.local/master.key}
+  auth-whitelist: ${WORKBENCH_AUTH_WHITELIST:}
+  smtp-host: ${WORKBENCH_SMTP_HOST:smtp.qq.com}
+  smtp-port: ${WORKBENCH_SMTP_PORT:465}
+  smtp-user: ${WORKBENCH_SMTP_USER:}
+  smtp-password: ${WORKBENCH_SMTP_PASSWORD:}
+  cli-dir: ${WORKBENCH_CLI_DIR:../cli}
+  memory-redis-host: ${WORKBENCH_MEMORY_REDIS_HOST:127.0.0.1}
+  memory-redis-port: ${WORKBENCH_MEMORY_REDIS_PORT:6379}
+  memory-redis-password: ${WORKBENCH_MEMORY_REDIS_PASSWORD:}
+  memory-redis-database: ${WORKBENCH_MEMORY_REDIS_DATABASE:15}
+  default-admin-enabled: ${WORKBENCH_DEFAULT_ADMIN_ENABLED:true}
+  default-admin-email: ${WORKBENCH_DEFAULT_ADMIN_EMAIL:admin@admin.com}
+  default-admin-password: ${WORKBENCH_DEFAULT_ADMIN_PASSWORD:admin}

@@ -1,0 +1,26 @@
+name: database-operation
+version: 1
+skill_by_tool:
+  MYSQL: mysql-operations
+  REDIS: redis-operations
+stages:
+  - id: understand
+    name: 理解请求
+    allow_write: false
+    entry_criteria: [user_authenticated]
+    exit_criteria: [target_and_operation_known]
+  - id: validate
+    name: 校验与准备
+    allow_write: false
+    entry_criteria: [target_and_operation_known]
+    exit_criteria: [connection_and_operation_valid]
+  - id: execute
+    name: 受控执行
+    allow_write: true
+    entry_criteria: [connection_and_operation_valid]
+    exit_criteria: [execution_outcome_recorded]
+  - id: summarize
+    name: 结果整理
+    allow_write: false
+    entry_criteria: [execution_outcome_recorded]
+    exit_criteria: [result_visible]

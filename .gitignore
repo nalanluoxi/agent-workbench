@@ -1,0 +1,16 @@
+/jzydocs/
+/backend/target/
+/backend/data/
+/backend/.local/
+/.local/
+/frontend/node_modules/
+/frontend/dist/
+/.env
+*.log
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.idea/
+**/__pycache__/
+*.pyc
