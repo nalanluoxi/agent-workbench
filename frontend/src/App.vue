@@ -90,7 +90,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', changed));
       <div class="sidebar-bottom"><div class="profile"><span class="profile-avatar">{{ currentUser.role === 'ADMIN' ? 'A' : (currentUser.email || 'U').slice(0, 1).toUpperCase() }}</span><span><strong>{{ currentUser.role === 'ADMIN' ? 'Admin' : (currentUser.email || '用户') }}</strong><small>{{ currentUser.role === 'ADMIN' ? '管理员' : '安全工作区' }}</small></span></div><button class="text-button" @click="logout">退出</button></div>
     </aside>
 
-    <ChatPage v-if="page === 'chat'" :session-id="sessionId" @new-session="newSession" />
+    <ChatPage v-if="page === 'chat'" :session-id="sessionId" @new-session="newSession" @session-updated="refresh" />
     <StatsPage v-else-if="page === 'dashboard'" />
     <ModelsPage v-else-if="page === 'models'" :key="route" :path="route" />
     <ToolsPage v-else-if="page === 'tools'" />

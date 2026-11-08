@@ -4,7 +4,7 @@ import { api, streamRun } from '../api.js';
 import UiIcon from './UiIcon.vue';
 
 const props = defineProps({ sessionId: String });
-const emit = defineEmits(['new-session']);
+const emit = defineEmits(['new-session', 'session-updated']);
 const messages = ref([]), models = ref([]), selectedModel = ref(''), text = ref(''), mode = ref('CHAT');
 const error = ref(''), streaming = ref(''), run = ref(null), events = ref([]), job = ref(null), busy = ref(false), intent = ref('');
 const conversationEl = ref(null), memoryContext = ref(null);
@@ -54,6 +54,10 @@ function handleEvent(event, restoring = false) {
     if (event.type !== 'run_completed') error.value = event.payload.message || '运行未完成';
     streaming.value = '';
     if (!restoring) refreshMessages();
+    if (!restoring && event.type === 'run_completed') {
+      window.setTimeout(() => emit('session-updated'), 1200);
+      window.setTimeout(() => emit('session-updated'), 3500);
+    }
   }
 }
 

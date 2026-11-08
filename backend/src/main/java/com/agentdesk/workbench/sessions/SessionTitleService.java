@@ -5,6 +5,8 @@ import com.agentdesk.workbench.models.ModelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -13,6 +15,7 @@ import java.util.concurrent.Executors;
 /** MDIP-style asynchronous title naming: summarize after the first three turns, then refresh periodically; manual rename locks it. */
 @Service
 public class SessionTitleService {
+    private static final Logger log = LoggerFactory.getLogger(SessionTitleService.class);
     private final SessionService sessions;
     private final ModelService models;
     private final ModelGateway gateway;
@@ -35,13 +38,15 @@ public class SessionTitleService {
             if (!firstSummary && !periodicSummary) return;
             ModelService.ModelConnection model = models.resolveChat(userId, null);
             ArrayNode prompt = json.createArrayNode();
-            prompt.addObject().put("role", "system").put("content", "请根据对话主题生成一个简短中文会话标题。只返回标题文本，不要引号、标点解释或换行，最多 20 个汉字。");
-            messages.stream().filter(item -> "user".equals(item.role()) || "assistant".equals(item.role())).skip(Math.max(0, messages.size() - 10))
+            prompt.addObject().put("role", "system").put("content", "你是会话标题生成器。根据用户最早三次提问概括核心主题，只输出一个 4 至 16 个汉字的中文名词短语。禁止回答问题，禁止使用引号、句号、冒号、换行或任何解释。");
+            messages.stream().filter(item -> "user".equals(item.role())).limit(3)
                     .forEach(item -> prompt.addObject().put("role", item.role()).put("content", item.content()));
             String title = gateway.complete(model.baseUrl(), model.modelName(), model.apiKey(), prompt, "CHAT", java.util.Set.of(), java.util.Set.of(), ignored -> {})
                     .content().replaceAll("[\\r\\n\\\"'`]+", " ").trim();
             if (title.length() > 20) title = title.substring(0, 20).trim();
             if (!title.isBlank()) sessions.autoRename(userId, sessionId, title, periodicSummary);
-        } catch (Exception ignored) { /* naming must never block or fail the conversation */ }
+        } catch (Exception e) {
+            log.warn("会话自动命名失败 sessionId={} reason={}", sessionId, e.getMessage());
+        }
     }
 }
