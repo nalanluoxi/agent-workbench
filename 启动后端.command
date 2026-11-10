@@ -36,6 +36,28 @@ if ! redis-cli -h "${WORKBENCH_MEMORY_REDIS_HOST:-127.0.0.1}" -p "${WORKBENCH_ME
   exit 1
 fi
 
+数据库文件="${项目目录}/backend/data/workbench.db"
+需要本地Ollama="0"
+if command -v sqlite3 >/dev/null 2>&1 && [[ -f "${数据库文件}" ]]; then
+  需要本地Ollama="$(sqlite3 "${数据库文件}" "SELECT COUNT(*) FROM model_configs m JOIN user_settings s ON s.user_id=m.user_id WHERE m.id=s.default_embedding_model AND m.enabled=1 AND m.base_url LIKE 'http://127.0.0.1:11434%';" 2>/dev/null || print 0)"
+fi
+if [[ "${需要本地Ollama}" != "0" ]] && ! curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+  if ! command -v ollama >/dev/null 2>&1; then
+    print -u2 "默认嵌入模型使用本机 Ollama，但没有找到 ollama 命令。"
+    exit 1
+  fi
+  mkdir -p "${项目目录}/.local"
+  ollama serve >> "${项目目录}/.local/ollama.log" 2>&1 &!
+  for _ in {1..20}; do
+    curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+  if ! curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+    print -u2 "本地 Ollama 启动失败，请查看 .local/ollama.log。"
+    exit 1
+  fi
+fi
+
 export JAVA_HOME="$(/usr/libexec/java_home -v 17)"
 export PATH="${JAVA_HOME}/bin:${PATH}"
 

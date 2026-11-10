@@ -4,6 +4,7 @@
 .message-avatar{margin-top:4px}
 .message.user .message-avatar{background:#20252c;border-color:#46505c;color:#d6dde8}
 .message-bubble{max-width:min(78%,700px);border:1px solid #2c3540;background:#13181e;border-radius:10px;padding:10px 13px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.message.assistant .message-bubble{width:min(78%,700px)}
 .message.user .message-bubble{background:#19263a;border-color:#38557e;border-top-right-radius:3px}
 .message.assistant .message-bubble{border-top-left-radius:3px}
 .message-meta{margin-bottom:4px}
@@ -27,4 +28,4 @@
 .context-counts{display:flex;gap:5px;flex-wrap:wrap}.context-counts span{font-size:9px;color:#91a9d5;border:1px solid #2f405d;background:#151f2f;padding:3px 6px;border-radius:3px}
 .session-action{opacity:0}.session-item:hover .session-action,.session-action:focus-visible{opacity:1}.session-rename{flex:1;min-width:0;padding:3px}.session-title-input{width:100%;height:28px;border:1px solid #7aa2f7;background:#0c1118;color:#e6e9ed;border-radius:3px;padding:3px 6px;font-size:11px}
 @media(max-width:820px){.workspace-main{height:auto;max-height:none;overflow:visible}.conversation{max-height:calc(100vh - 245px)}}
-@media(max-width:560px){.message-bubble{max-width:88%}.mode-notice{width:calc(100% - 36px)}.approval-facts{grid-template-columns:1fr}}
+@media(max-width:560px){.message-bubble{max-width:88%}.message.assistant .message-bubble{width:88%}.mode-notice{width:calc(100% - 36px)}.approval-facts{grid-template-columns:1fr}}

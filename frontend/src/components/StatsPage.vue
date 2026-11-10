@@ -2,17 +2,24 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '../api.js';
 
-const period = ref('7d'), data = ref(null), error = ref(''), busy = ref(false);
+const period = ref('7d'), data = ref(null), error = ref(''), busy = ref(false), activeDay = ref('');
 const days = computed(() => [...new Set((data.value?.trends || []).map(item => item.day))]);
-const maxRuns = computed(() => Math.max(1, ...(data.value?.trends || []).map(item => item.runs)));
+const rawMax = computed(() => Math.max(1, ...(data.value?.trends || []).map(item => item.runs)));
+const tickStep = computed(() => Math.max(1, Math.ceil(rawMax.value / 4)));
+const maxRuns = computed(() => Math.max(4, Math.ceil(rawMax.value / tickStep.value) * tickStep.value));
+const yTicks = computed(() => Array.from({ length: Math.floor(maxRuns.value / tickStep.value) + 1 }, (_, index) => index * tickStep.value));
+const activeIndex = computed(() => days.value.indexOf(activeDay.value));
+const activeValues = computed(() => ({
+  chat: data.value?.trends.find(item => item.day === activeDay.value && item.mode === 'CHAT')?.runs || 0,
+  build: data.value?.trends.find(item => item.day === activeDay.value && item.mode === 'BUILD')?.runs || 0
+}));
+function x(index) { return days.value.length < 2 ? 325 : 45 + index * (565 / (days.value.length - 1)); }
+function y(value) { return 145 - value * 115 / maxRuns.value; }
 function points(mode) {
   const values = days.value.map(day => data.value?.trends.find(item => item.day === day && item.mode === mode)?.runs || 0);
-  return values.map((value, index) => {
-    const x = days.value.length < 2 ? 320 : 30 + index * (580 / (days.value.length - 1));
-    const y = 145 - value * 115 / maxRuns.value;
-    return `${x},${y}`;
-  }).join(' ');
+  return values.map((value, index) => `${x(index)},${y(value)}`).join(' ');
 }
+function showLabel(index) { return days.value.length <= 10 || index === 0 || index === days.value.length - 1 || index % 5 === 0; }
 function percent(value) { return `${Math.max(0, Math.min(100, Number(value || 0)))}%`; }
 function formatTime(value) { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }
 async function load() { busy.value = true; error.value = ''; try { data.value = await api(`/api/stats/dashboard?period=${period.value}&scope=me`); } catch (e) { error.value = e.message; } finally { busy.value = false; } }
@@ -34,7 +41,21 @@ onMounted(load);
 
       <div class="dashboard-grid">
         <section class="dashboard-panel chart-panel"><div class="panel-title"><div><h2>Chat / Build 运行趋势</h2><p>按天统计新建运行</p></div><div class="chart-legend"><span><i class="chat"></i>Chat</span><span><i class="build"></i>Build</span></div></div>
-          <svg class="trend-chart" viewBox="0 0 640 180" role="img" aria-label="Chat 与 Build 运行次数折线图"><path d="M30 145H610M30 30V145" class="axis"/><polyline v-if="days.length" :points="points('CHAT')" class="line chat"/><polyline v-if="days.length" :points="points('BUILD')" class="line build"/><text v-for="(day,index) in days" :key="day" :x="days.length < 2 ? 320 : 30 + index * (580 / (days.length - 1))" y="169" text-anchor="middle">{{ day.slice(5) }}</text></svg>
+          <div class="trend-chart-wrap">
+            <svg class="trend-chart" viewBox="0 0 640 180" role="img" aria-label="Chat 与 Build 运行次数折线图">
+              <g v-for="tick in yTicks" :key="tick"><line x1="45" x2="610" :y1="y(tick)" :y2="y(tick)" class="grid-line"/><text x="36" :y="y(tick) + 4" text-anchor="end" class="axis-label">{{ tick }}</text></g>
+              <path d="M45 145H610M45 30V145" class="axis"/>
+              <polyline v-if="days.length" :points="points('CHAT')" class="line chat"/><polyline v-if="days.length" :points="points('BUILD')" class="line build"/>
+              <g v-for="(day,index) in days" :key="day">
+                <circle :cx="x(index)" :cy="y(data.trends.find(item => item.day === day && item.mode === 'CHAT')?.runs || 0)" r="3.5" class="chart-dot chat"/>
+                <circle :cx="x(index)" :cy="y(data.trends.find(item => item.day === day && item.mode === 'BUILD')?.runs || 0)" r="3.5" class="chart-dot build"/>
+                <text v-if="showLabel(index)" :x="x(index)" y="169" text-anchor="middle" class="axis-label">{{ day.slice(5) }}</text>
+                <rect :x="Math.max(45, x(index) - Math.max(10, 280 / Math.max(days.length, 1)))" y="25" :width="Math.max(20, 560 / Math.max(days.length, 1))" height="125" class="chart-hit" tabindex="0" role="button" :aria-label="`${day}，Chat ${data.trends.find(item => item.day === day && item.mode === 'CHAT')?.runs || 0} 次，Build ${data.trends.find(item => item.day === day && item.mode === 'BUILD')?.runs || 0} 次`" @mouseenter="activeDay=day" @mouseleave="activeDay=''" @focus="activeDay=day" @blur="activeDay=''" @click="activeDay=activeDay===day?'':day"/>
+              </g>
+              <line v-if="activeIndex >= 0" :x1="x(activeIndex)" :x2="x(activeIndex)" y1="30" y2="145" class="cursor-line"/>
+            </svg>
+            <div v-if="activeIndex >= 0" class="chart-tooltip" :style="{ left: `${Math.min(82, Math.max(10, x(activeIndex) / 6.4))}%` }" role="status"><strong>{{ activeDay }}</strong><span><i class="chat"></i>Chat {{ activeValues.chat }}</span><span><i class="build"></i>Build {{ activeValues.build }}</span></div>
+          </div>
           <table class="sr-table"><caption>运行趋势数据</caption><thead><tr><th>日期</th><th>模式</th><th>运行</th><th>成功</th></tr></thead><tbody><tr v-for="item in data.trends" :key="`${item.day}-${item.mode}`"><td>{{ item.day }}</td><td>{{ item.mode }}</td><td>{{ item.runs }}</td><td>{{ item.successful }}</td></tr></tbody></table>
         </section>
 

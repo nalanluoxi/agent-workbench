@@ -87,19 +87,120 @@ class AgentRunTest {
         mvc.perform(get("/api/runs/" + run + "/events")).andExpect(status().isUnauthorized());
     }
 
-    @Test void routeCandidateBlocksAnUnrelatedToolEvenWhenTheModelRequestsIt() throws Exception {
+    @Test void databaseRouteIsRecommendationInsteadOfHardToolGate() throws Exception {
         var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
         var session = sessions.create("u", "路由候选");
         AtomicInteger turns = new AtomicInteger();
         String args = json.writeValueAsString(Map.of("toolId", ConnectionService.REDIS_TOOL, "command", "GET", "args", Map.of("key", "x")));
         when(gateway.complete(anyString(), anyString(), any(), any(), anyString(), anySet(), anySet(), any())).thenAnswer(invocation -> turns.getAndIncrement() == 0
                 ? new ModelGateway.ModelReply("", List.of(new ModelGateway.ToolCall("wrong-tool", "database_operation", args)))
-                : new ModelGateway.ModelReply("已拒绝无关工具", List.of()));
+                : new ModelGateway.ModelReply("已按实际工具结果处理", List.of()));
+        when(runner.execute(anyString(), anyString(), any())).thenReturn(json.valueToTree(Map.of("status", "COMPLETED", "result", Map.of("value", "ok"))));
         String run = start(session.id(), model.id(), "CHAT", "请查询 MySQL 数据库");
         waitFor(run, "completed");
-        verifyNoInteractions(runner);
+        verify(runner, times(1)).execute(anyString(), eq(run), any());
         assertThat(db.queryForObject("SELECT payload FROM run_events WHERE run_id=? AND type='tool_result' ORDER BY seq DESC LIMIT 1", String.class, run))
-                .contains("不在本次意图路由候选中");
+                .contains("COMPLETED");
+    }
+
+    @Test void databaseIntentRejectsTextOnlyAnswerAndRetriesWithTool() throws Exception {
+        var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
+        var session = sessions.create("u", "真实查询证据");
+        connections.create("u", new ConnectionService.ConnectionInput("MYSQL", "demo", "localhost", 3306, "crawler", "", ""));
+        String args = json.writeValueAsString(Map.of("toolId", ConnectionService.MYSQL_TOOL, "command", "SELECT",
+                "args", Map.of("database", "crawler", "table", "crawl_site_config", "columns", List.of("*"), "limit", 10)));
+        AtomicInteger turns = new AtomicInteger();
+        when(gateway.complete(anyString(), anyString(), any(), any(), anyString(), anySet(), anySet(), any())).thenAnswer(invocation -> {
+            int turn = turns.getAndIncrement();
+            Consumer<String> output = invocation.getArgument(7);
+            if (turn == 0) {
+                output.accept("这是没有依据的假结果");
+                return new ModelGateway.ModelReply("这是没有依据的假结果", List.of());
+            }
+            if (turn == 1) return new ModelGateway.ModelReply("", List.of(new ModelGateway.ToolCall("query-1", "database_operation", args)));
+            output.accept("已返回真实查询结果");
+            return new ModelGateway.ModelReply("已返回真实查询结果", List.of());
+        });
+        when(runner.execute(anyString(), anyString(), any())).thenReturn(json.valueToTree(Map.of("status", "COMPLETED", "result", List.of(Map.of("id", 1)))));
+
+        String run = start(session.id(), model.id(), "CHAT", "重新查询 crawler.crawl_site_config 前十行数据");
+        waitFor(run, "completed");
+
+        assertThat(turns.get()).isEqualTo(3);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM run_events WHERE run_id=? AND type='policy_retry'", Integer.class, run)).isEqualTo(1);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM run_events WHERE run_id=? AND type='tool_result'", Integer.class, run)).isEqualTo(1);
+        assertThat(sessions.messages("u", session.id())).extracting(SessionService.MessageView::content)
+                .contains("已返回真实查询结果")
+                .doesNotContain("这是没有依据的假结果");
+        assertThat(sessions.artifacts("u", session.id())).hasSize(1);
+        assertThat(sessions.artifacts("u", session.id()).get(0).payload().path("result").get(0).path("id").asInt()).isEqualTo(1);
+    }
+
+    @Test void createTableGeneratesPersistentConfirmationCardBeforeExecution() throws Exception {
+        var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
+        var session = sessions.create("u", "建表确认");
+        connections.create("u", new ConnectionService.ConnectionInput("MYSQL", "demo", "localhost", 3306, "crawler", "", ""));
+        String sql = "CREATE TABLE crawler.test_crawler (id BIGINT PRIMARY KEY, name VARCHAR(64) NOT NULL)";
+        String args = json.writeValueAsString(Map.of("toolId", ConnectionService.MYSQL_TOOL, "command", "SQL", "args", Map.of("sql", sql)));
+        AtomicInteger turns = new AtomicInteger();
+        when(gateway.complete(anyString(), anyString(), any(), any(), anyString(), anySet(), anySet(), any())).thenAnswer(invocation -> turns.getAndIncrement() == 0
+                ? new ModelGateway.ModelReply("", List.of(new ModelGateway.ToolCall("create-table", "database_operation", args)))
+                : new ModelGateway.ModelReply("操作已拒绝", List.of()));
+        when(runner.execute(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            String user = invocation.getArgument(0), run = invocation.getArgument(1);
+            JsonNode input = json.readTree(((ModelGateway.ToolCall) invocation.getArgument(2)).arguments());
+            return json.valueToTree(workflows.create(new Principal(user, "AGENT", "test", run),
+                    new OperationPolicy.OperationRequest(input.path("toolId").asText(), input.path("command").asText(), input.path("args"), run)));
+        });
+
+        String run = start(session.id(), model.id(), "BUILD", "请在 crawler 中创建 test_crawler 表");
+        waitFor(run, "waiting_confirmation");
+
+        verify(mysql, never()).execute(any(), any());
+        var pendingArtifacts = sessions.artifacts("u", session.id());
+        assertThat(pendingArtifacts).hasSize(1);
+        assertThat(pendingArtifacts.get(0).payload().path("action").path("status").asText()).isEqualTo("PENDING");
+        assertThat(pendingArtifacts.get(0).payload().path("action").path("operation").path("args").path("risk").asText()).isEqualTo("DANGER");
+
+        String action = db.queryForObject("SELECT a.id FROM db_actions a JOIN workflow_jobs j ON j.id=a.job_id WHERE j.run_id=?", String.class, run);
+        mvc.perform(post("/api/actions/" + action + "/reject").header("Authorization", "Bearer user-token")).andExpect(status().isOk());
+        waitFor(run, "completed");
+
+        verify(mysql, never()).execute(any(), any());
+        assertThat(sessions.artifacts("u", session.id())).hasSize(1);
+        assertThat(sessions.artifacts("u", session.id()).get(0).payload().path("action").path("status").asText()).isEqualTo("REJECTED");
+    }
+
+    @Test void createTableFieldReplyKeepsDatabaseIntentAndGeneratesCard() throws Exception {
+        var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
+        var session = sessions.create("u", "建表多轮追问");
+        connections.create("u", new ConnectionService.ConnectionInput("MYSQL", "demo", "localhost", 3306, "crawler", "", ""));
+        sessions.append("u", session.id(), "user", "在 crawler 写一个表 test_crawler", "BUILD");
+        sessions.append("u", session.id(), "assistant", "请提供字段，建表会生成确认卡片", "BUILD");
+        String sql = "CREATE TABLE crawler.test_crawler (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), created DATETIME DEFAULT CURRENT_TIMESTAMP)";
+        String args = json.writeValueAsString(Map.of("toolId", ConnectionService.MYSQL_TOOL, "command", "SQL", "args", Map.of("sql", sql)));
+        AtomicInteger turns = new AtomicInteger();
+        when(gateway.complete(anyString(), anyString(), any(), any(), anyString(), anySet(), anySet(), any())).thenAnswer(invocation -> turns.getAndIncrement() == 0
+                ? new ModelGateway.ModelReply("", List.of(new ModelGateway.ToolCall("create-fields", "database_operation", args)))
+                : new ModelGateway.ModelReply("操作已拒绝", List.of()));
+        when(runner.execute(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            String user = invocation.getArgument(0), run = invocation.getArgument(1);
+            JsonNode input = json.readTree(((ModelGateway.ToolCall) invocation.getArgument(2)).arguments());
+            return json.valueToTree(workflows.create(new Principal(user, "AGENT", "test", run),
+                    new OperationPolicy.OperationRequest(input.path("toolId").asText(), input.path("command").asText(), input.path("args"), run)));
+        });
+
+        String run = start(session.id(), model.id(), "BUILD", "id,name,created");
+        waitFor(run, "waiting_confirmation");
+
+        assertThat(db.queryForObject("SELECT intent FROM route_decisions WHERE run_id=?", String.class, run)).isEqualTo("MYSQL_MUTATE");
+        assertThat(sessions.artifacts("u", session.id())).hasSize(1);
+        assertThat(sessions.artifacts("u", session.id()).get(0).payload().path("action").path("status").asText()).isEqualTo("PENDING");
+        verify(mysql, never()).execute(any(), any());
+
+        String action = db.queryForObject("SELECT a.id FROM db_actions a JOIN workflow_jobs j ON j.id=a.job_id WHERE j.run_id=?", String.class, run);
+        mvc.perform(post("/api/actions/" + action + "/reject").header("Authorization", "Bearer user-token")).andExpect(status().isOk());
+        waitFor(run, "completed");
     }
 
     @Test void agentWaitsForHumanThenResumesWithRealWorkflowStatus() throws Exception {

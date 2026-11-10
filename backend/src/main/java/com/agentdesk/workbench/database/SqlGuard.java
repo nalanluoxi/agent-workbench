@@ -4,6 +4,7 @@ import com.agentdesk.workbench.core.ApiException;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.drop.Drop;
 import net.sf.jsqlparser.statement.insert.Insert;
@@ -55,7 +56,8 @@ public class SqlGuard {
             return new GuardResult(normalized, noWhere ? "DANGER" : "DANGER", true, tables.stream().toList());
         }
         if (statement instanceof Drop || statement instanceof Truncate) return new GuardResult(normalized, "DANGER", true, tables.stream().toList());
-        throw ApiException.badRequest("该 SQL 类型暂不支持，请使用 SELECT、INSERT、UPDATE、DELETE、DROP 或 TRUNCATE");
+        if (statement instanceof CreateTable) return new GuardResult(normalized, "DANGER", true, tables.stream().toList());
+        throw ApiException.badRequest("该 SQL 类型暂不支持，请使用 SELECT、INSERT、UPDATE、DELETE、CREATE TABLE、DROP 或 TRUNCATE");
     }
 
     private String appendLimitIfMissing(String sql, int selectLimit) {

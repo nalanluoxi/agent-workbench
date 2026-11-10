@@ -25,4 +25,10 @@ class SqlGuardTest {
         assertThatThrownBy(() -> guard.inspect("SELECT 1; DELETE FROM orders", 500)).hasMessageContaining("多条 SQL");
         assertThatThrownBy(() -> guard.inspect("SELECT * FROM mysql.user", 500)).hasMessageContaining("系统库");
     }
+
+    @Test void createTableIsDangerousWrite() {
+        var result = guard.inspect("CREATE TABLE crawler.test_crawler (id BIGINT PRIMARY KEY, name VARCHAR(64) NOT NULL)", 500);
+        assertThat(result.write()).isTrue();
+        assertThat(result.risk()).isEqualTo("DANGER");
+    }
 }

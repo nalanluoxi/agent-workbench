@@ -57,7 +57,8 @@ class WorkflowTest {
         JsonNode job = create(connection, "UPDATE", Map.of("table", "orders", "where", Map.of("id", 1), "values", Map.of("status", "done")), "agent");
         String jobId = job.get("id").asText(), actionId = job.get("action").get("id").asText();
         assertThat(job.get("status").asText()).isEqualTo("WAITING_CONFIRMATION");
-        verifyNoInteractions(mysql);
+        verify(mysql, times(1)).previewImpact(any(), any());
+        verify(mysql, never()).execute(any(), any());
         mvc.perform(post("/api/actions/" + actionId + "/approve").header("Authorization", bearer("agent"))).andExpect(status().isForbidden());
         mvc.perform(post("/api/actions/" + actionId + "/approve").header("Authorization", bearer("other"))).andExpect(status().isNotFound());
         when(mysql.execute(any(), any())).thenReturn(Map.of("affectedRows", 1));
@@ -125,7 +126,8 @@ class WorkflowTest {
         String saved = db.queryForObject("SELECT workflow_snapshot FROM workflow_jobs WHERE id=?", String.class, jobId);
         db.update("UPDATE workflow_jobs SET workflow_snapshot=? WHERE id=?", saved.replace("理解请求", "更改后的名称"), jobId);
         mvc.perform(post("/api/actions/" + actionId + "/approve").header("Authorization", bearer("owner"))).andExpect(status().isConflict());
-        verifyNoInteractions(mysql);
+        verify(mysql, times(1)).previewImpact(any(), any());
+        verify(mysql, never()).execute(any(), any());
     }
 
     @Test void unboundedDeleteAndStreamModificationAreRejectedBeforeExecution() throws Exception {

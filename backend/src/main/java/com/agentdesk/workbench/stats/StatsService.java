@@ -3,10 +3,13 @@ package com.agentdesk.workbench.stats;
 import com.agentdesk.workbench.auth.Principal;
 import com.agentdesk.workbench.core.ApiException;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -19,13 +22,14 @@ public class StatsService {
     }
 
     public Dashboard dashboard(Principal principal, String period, String scope) {
-        long since = System.currentTimeMillis() - duration(period).toMillis();
+        String normalizedPeriod = normalizePeriod(period);
+        long since = System.currentTimeMillis() - duration(normalizedPeriod).toMillis();
         boolean all = "all".equalsIgnoreCase(scope);
         if (all && !principal.isAdmin()) throw ApiException.forbidden("只有管理员可以查看全部用户统计");
         QueryScope filter = all ? new QueryScope("", new Object[]{since}) : new QueryScope(" AND user_id=?", new Object[]{since, principal.userId()});
         Overview overview = overview(filter);
-        return new Dashboard(period == null ? "7d" : period, all ? "all" : "me", since, overview,
-                trends(filter), ranking(filter), intents(filter), confirmations(filter), resources(principal, all), recent(filter));
+        return new Dashboard(normalizedPeriod, all ? "all" : "me", since, overview,
+                trends(filter, normalizedPeriod), ranking(filter), intents(filter), confirmations(filter), resources(principal, all), recent(filter));
     }
 
     private Overview overview(QueryScope filter) {
@@ -40,11 +44,27 @@ public class StatsService {
                 tools.total(), tools.success(), tools.denominator(), rate(tools.success(), tools.denominator()), confirmations);
     }
 
-    private List<TrendPoint> trends(QueryScope filter) {
-        return db.query("SELECT date(created_at/1000,'unixepoch','localtime') day,mode,COUNT(*),"
+    private List<TrendPoint> trends(QueryScope filter, String period) {
+        List<TrendPoint> observed = db.query("SELECT date(created_at/1000,'unixepoch','localtime') day,mode,COUNT(*),"
                         + "SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) FROM runs WHERE created_at>=?" + filter.userClause()
                         + " GROUP BY day,mode ORDER BY day,mode",
                 (rs, n) -> new TrendPoint(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getLong(4)), filter.args());
+        return completeTrends(observed, period, LocalDate.now(ZoneId.systemDefault()));
+    }
+
+    static List<TrendPoint> completeTrends(List<TrendPoint> observed, String period, LocalDate today) {
+        Map<String, TrendPoint> byBucket = new LinkedHashMap<>();
+        observed.forEach(point -> byBucket.put(point.day() + "\0" + point.mode(), point));
+        int days = switch (period) { case "24h" -> 1; case "30d" -> 30; default -> 7; };
+        LocalDate firstDay = today.minusDays(days - 1L);
+        List<TrendPoint> complete = new ArrayList<>(days * 2);
+        for (int offset = 0; offset < days; offset++) {
+            String day = firstDay.plusDays(offset).toString();
+            for (String mode : List.of("CHAT", "BUILD")) {
+                complete.add(byBucket.getOrDefault(day + "\0" + mode, new TrendPoint(day, mode, 0, 0)));
+            }
+        }
+        return complete;
     }
 
     private List<RankItem> ranking(QueryScope filter) {
@@ -96,12 +116,18 @@ public class StatsService {
         return denominator == 0 ? 0 : Math.round(success * 1000.0 / denominator) / 10.0;
     }
 
+    private String normalizePeriod(String period) {
+        if (period == null || period.isBlank()) return "7d";
+        if (!Set.of("24h", "7d", "30d").contains(period)) throw ApiException.badRequest("统计周期只支持 24h、7d、30d");
+        return period;
+    }
+
     private Duration duration(String period) {
-        if (period == null || period.isBlank() || period.equals("7d")) return Duration.ofDays(7);
+        if (period.equals("7d")) return Duration.ofDays(7);
         return switch (period) {
             case "24h" -> Duration.ofHours(24);
             case "30d" -> Duration.ofDays(30);
-            default -> throw ApiException.badRequest("统计周期只支持 24h、7d、30d");
+            default -> throw new IllegalArgumentException("unsupported period");
         };
     }
 

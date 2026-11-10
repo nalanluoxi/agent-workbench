@@ -41,9 +41,7 @@ public class WorkflowService {
         String type = request.connectionId().startsWith("builtin-") ? connections.typeFor(request.connectionId()) : connections.get(principal.userId(), request.connectionId()).type();
         OperationPolicy.Operation operation = policy.prepare(type, request, mode);
         String database = operation.args().path("database").isMissingNode() ? null : operation.args().path("database").asText();
-        ConnectionService.ConnectionConfig config = request.connectionId().startsWith("builtin-")
-                ? connections.resolveTool(principal.userId(), request.connectionId(), database)
-                : connections.resolve(principal.userId(), request.connectionId());
+        ConnectionService.ConnectionConfig config = connections.resolveForOperation(principal.userId(), request.connectionId(), database);
         WorkflowDefinition.Definition flow = definition.current();
         definition.requireExecutionAllowed(flow, operation.write());
         String flowSnapshot = definition.snapshot(flow);
@@ -60,7 +58,11 @@ public class WorkflowService {
         }
         String jobId = UUID.randomUUID().toString();
         String actionId = operation.write() ? UUID.randomUUID().toString() : null;
-        String snapshot = json(Map.of("command", operation.command(), "args", operation.args()));
+        com.fasterxml.jackson.databind.node.ObjectNode snapshotNode = mapper.createObjectNode();
+        snapshotNode.put("command", operation.command());
+        snapshotNode.set("args", operation.args());
+        if (operation.write() && config.type().equals("MYSQL")) snapshotNode.set("impact", mapper.valueToTree(mysql.previewImpact(config, operation)));
+        String snapshot = json(snapshotNode);
         long now = System.currentTimeMillis();
         transaction.executeWithoutResult(status -> {
             db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,workflow_version,workflow_snapshot,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -92,7 +94,10 @@ public class WorkflowService {
     private Claim claim(String userId, String actionId) {
         ActionRow action = action(userId, actionId);
         if (!action.status().equals("PENDING")) return new Claim(action, null, null, false);
-        ConnectionService.ConnectionConfig config = connections.resolve(userId, action.connectionId());
+        JsonNode snapshot = parse(action.operationJson());
+        String requestedDatabase = snapshot.path("args").path("database").isMissingNode()
+                ? null : snapshot.path("args").path("database").asText();
+        ConnectionService.ConnectionConfig config = connections.resolveForOperation(userId, action.connectionId(), requestedDatabase);
         if (action.expiresAt() <= System.currentTimeMillis() || config.version() != action.connectionVersion()) {
             db.update("UPDATE db_actions SET status='EXPIRED',updated_at=? WHERE id=? AND user_id=? AND status='PENDING'", System.currentTimeMillis(), actionId, userId);
             updateJob(action.jobId(), "execute", "EXPIRED", null, "确认已过期或连接已修改");
@@ -103,7 +108,6 @@ public class WorkflowService {
         definition.requireExecutionAllowed(definition.fromSnapshot(flowSnapshot), true);
         String expected = digest(userId, action.jobId(), action.id(), action.connectionId(), action.connectionVersion(), action.operationJson(), flowSnapshot);
         if (!vault.matches(expected, action.operationDigest())) throw ApiException.conflict("操作内容校验失败，请重新发起");
-        JsonNode snapshot = parse(action.operationJson());
         OperationPolicy.Operation operation = policy.prepare(config.type(), new OperationPolicy.OperationRequest(config.id(), snapshot.path("command").asText(), snapshot.get("args"), null), jobMode(action.jobId()));
         if (!operation.write()) throw ApiException.conflict("待确认动作类型无效");
         int changed = db.update("UPDATE db_actions SET status='APPROVED',updated_at=? WHERE id=? AND user_id=? AND status='PENDING' AND expires_at>?",

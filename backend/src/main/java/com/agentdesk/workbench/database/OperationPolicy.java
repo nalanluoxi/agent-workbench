@@ -80,11 +80,46 @@ public class OperationPolicy {
                 if (args.has("where")) fields(args.get("where"), false);
                 if (args.has("limit") && (!args.get("limit").canConvertToInt() || args.get("limit").asInt() < 1 || args.get("limit").asInt() > 500)) throw ApiException.badRequest("查询上限应为 1 到 500");
             }
-            case "INSERT" -> { only(args, "table", "values"); identifier(args.path("table").asText("")); fields(args.get("values"), true); }
+            case "INSERT" -> validateInsert(args);
             case "UPDATE" -> { only(args, "table", "values", "where"); identifier(args.path("table").asText("")); fields(args.get("values"), true); fields(args.get("where"), true); }
             case "DELETE" -> { only(args, "table", "where"); identifier(args.path("table").asText("")); fields(args.get("where"), true); }
             default -> throw ApiException.badRequest("不支持该操作");
         }
+    }
+
+    private void validateInsert(JsonNode args) {
+        identifier(args.path("table").asText(""));
+        JsonNode values = args.get("values");
+        if (values != null && values.isObject()) {
+            only(args, "table", "values");
+            fields(values, true);
+            return;
+        }
+        only(args, "table", "columns", "values");
+        JsonNode columns = args.get("columns");
+        if (columns == null || !columns.isArray() || columns.isEmpty() || columns.size() > 100) {
+            throw ApiException.badRequest("批量写入 columns 必须是 1 到 100 个字段名");
+        }
+        Set<String> unique = new HashSet<>();
+        columns.forEach(column -> {
+            if (!column.isTextual()) throw ApiException.badRequest("批量写入字段名无效");
+            identifier(column.asText());
+            if (!unique.add(column.asText())) throw ApiException.badRequest("批量写入字段不能重复");
+        });
+        if (values == null || !values.isArray() || values.isEmpty() || values.size() > 100) {
+            throw ApiException.badRequest("批量写入 values 必须包含 1 到 100 行数据");
+        }
+        values.forEach(row -> {
+            if (!row.isArray() || row.size() != columns.size()) throw ApiException.badRequest("批量写入每行数据必须与 columns 数量一致");
+            row.forEach(this::validateScalar);
+        });
+    }
+
+    private void validateScalar(JsonNode value) {
+        if (!(value.isTextual() || value.isNumber() || value.isBoolean() || value.isNull())) {
+            throw ApiException.badRequest("批量写入字段值类型不支持");
+        }
+        if (value.isTextual() && value.asText().length() > 65_536) throw ApiException.badRequest("批量写入字段值过长");
     }
 
     private void validateRedis(String command, JsonNode args) {

@@ -17,5 +17,6 @@ public class SessionController {
     @PatchMapping("/{id}") public SessionService.SessionView rename(HttpServletRequest request, @PathVariable String id, @RequestBody SessionInput input) { return sessions.rename(AuthFilter.require(request).userId(), id, input.title()); }
     @DeleteMapping("/{id}") public Map<String,String> delete(HttpServletRequest request, @PathVariable String id) { sessions.delete(AuthFilter.require(request).userId(), id); return Map.of("message", "已删除"); }
     @GetMapping("/{id}/messages") public List<SessionService.MessageView> messages(HttpServletRequest request, @PathVariable String id) { return sessions.messages(AuthFilter.require(request).userId(), id); }
+    @GetMapping("/{id}/artifacts") public List<SessionService.ArtifactView> artifacts(HttpServletRequest request, @PathVariable String id) { return sessions.artifacts(AuthFilter.require(request).userId(), id); }
     public record SessionInput(String title) {}
 }

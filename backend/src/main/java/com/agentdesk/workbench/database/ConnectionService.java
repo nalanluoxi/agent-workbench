@@ -42,6 +42,16 @@ public class ConnectionService {
         return resolveLegacy(userId, id);
     }
 
+    /** Resolves the saved connection while preserving the database selected for this operation. */
+    public ConnectionConfig resolveForOperation(String userId, String id, String requestedDatabase) {
+        if (MYSQL_TOOL.equals(id) || REDIS_TOOL.equals(id)) return resolveTool(userId, id, requestedDatabase);
+        ConnectionConfig config = resolveLegacy(userId, id);
+        if (requestedDatabase == null || requestedDatabase.isBlank()) return config;
+        String database = validateDatabase(config.type(), requestedDatabase);
+        return new ConnectionConfig(config.id(), config.type(), config.host(), config.port(), database,
+                config.username(), config.password(), config.version());
+    }
+
     public ConnectionConfig resolveTool(String userId, String toolId, String requestedDatabase) {
         String type = typeFor(toolId);
         requireEnabled(userId, toolId);
@@ -52,10 +62,15 @@ public class ConnectionService {
         if (records.isEmpty()) throw ApiException.badRequest(type.equals("MYSQL") ? "本机 MySQL 工具尚未注册" : "本机 Redis 工具尚未注册");
         ConnectionConfig config = records.get(0);
         if (requestedDatabase == null || requestedDatabase.isBlank()) return config;
+        String database = validateDatabase(type, requestedDatabase);
+        return new ConnectionConfig(config.id(), type, config.host(), config.port(), database, config.username(), config.password(), config.version());
+    }
+
+    private String validateDatabase(String type, String requestedDatabase) {
         String database = requestedDatabase.trim();
         if (type.equals("MYSQL")) OperationPolicy.identifier(database);
         else if (!database.matches("(?:[0-9]|[1-9][0-9]{1,3})")) throw ApiException.badRequest("Redis 数据库编号应为 0 到 9999");
-        return new ConnectionConfig(config.id(), type, config.host(), config.port(), database, config.username(), config.password(), config.version());
+        return database;
     }
 
     public void requireEnabled(String userId, String toolId) {

@@ -70,7 +70,14 @@ public class MemoryGateway {
                 return result;
             }
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("模型请求已中断", e); }
-        catch (java.io.IOException e) { throw new IllegalStateException("模型服务不可用", e); }
+        catch (java.io.IOException e) {
+            String target;
+            try {
+                URI uri = URI.create(url);
+                target = uri.getHost() + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
+            } catch (Exception ignored) { target = "已配置地址"; }
+            throw new IllegalStateException("模型服务不可用（" + target + "），请确认本地模型服务已启动且接口地址可访问", e);
+        }
     }
     private List<String> strings(JsonNode value) {
         if (!value.isArray()) throw new IllegalStateException("记忆提取结果缺少数组");

@@ -2,6 +2,10 @@ package com.agentdesk.workbench.sessions;
 
 import com.agentdesk.workbench.core.ApiException;
 import com.agentdesk.workbench.memory.MemoryService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,7 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SessionService {
     private final JdbcTemplate db;
     private final MemoryService memory;
-    public SessionService(JdbcTemplate db, MemoryService memory) { this.db = db; this.memory = memory; }
+    private final ObjectMapper json;
+    public SessionService(JdbcTemplate db, MemoryService memory, ObjectMapper json) { this.db = db; this.memory = memory; this.json = json; }
 
     public List<SessionView> list(String userId) {
         return db.query("SELECT id,title,created_at,updated_at FROM sessions WHERE user_id=? ORDER BY updated_at DESC,rowid DESC",
@@ -71,6 +76,22 @@ public class SessionService {
                 (rs, n) -> new MessageView(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getLong(5)), userId, sessionId);
     }
 
+    public List<ArtifactView> artifacts(String userId, String sessionId) {
+        get(userId, sessionId);
+        List<ArtifactEvent> events = db.query("SELECT r.id,e.seq,e.type,e.payload,e.created_at FROM runs r JOIN run_events e ON e.run_id=r.id "
+                        + "WHERE r.user_id=? AND r.session_id=? AND e.type IN ('confirmation_required','tool_result') ORDER BY e.created_at,r.created_at,e.seq",
+                (rs, n) -> new ArtifactEvent(rs.getString(1), rs.getLong(2), rs.getString(3), parse(rs.getString(4)), rs.getLong(5)), userId, sessionId);
+        LinkedHashMap<String, ArtifactView> timeline = new LinkedHashMap<>();
+        for (ArtifactEvent event : events) {
+            String jobId = event.payload().path("id").asText("");
+            String id = jobId.isBlank() ? event.runId() + ":" + event.seq() : jobId;
+            ArtifactView previous = timeline.get(id);
+            long createdAt = previous == null ? event.createdAt() : previous.createdAt();
+            timeline.put(id, new ArtifactView(id, event.runId(), event.type(), artifactKind(event.payload()), event.payload(), createdAt, event.createdAt()));
+        }
+        return List.copyOf(timeline.values());
+    }
+
     public String append(String userId, String sessionId, String role, String content) {
         return append(userId, sessionId, role, content, "CHAT");
     }
@@ -90,6 +111,20 @@ public class SessionService {
         return value.trim();
     }
 
+    private JsonNode parse(String value) {
+        try { return json.readTree(value); }
+        catch (JsonProcessingException e) { throw new IllegalStateException("无法读取会话产物", e); }
+    }
+
+    private String artifactKind(JsonNode payload) {
+        String actionKind = payload.path("action").path("kind").asText("");
+        if (!actionKind.isBlank()) return actionKind;
+        if (!payload.path("id").asText("").isBlank() || payload.path("error").asText("").contains("数据库")) return "DATABASE";
+        return "TOOL";
+    }
+
     public record SessionView(String id, String title, long createdAt, long updatedAt) {}
     public record MessageView(String id, String role, String content, String mode, long createdAt) {}
+    public record ArtifactView(String id, String runId, String type, String kind, JsonNode payload, long createdAt, long updatedAt) {}
+    private record ArtifactEvent(String runId, long seq, String type, JsonNode payload, long createdAt) {}
 }
