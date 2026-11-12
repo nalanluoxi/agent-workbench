@@ -60,8 +60,8 @@ public class SkillScriptService {
         String job = UUID.randomUUID().toString(), action = UUID.randomUUID().toString(); long now = System.currentTimeMillis();
         transaction.executeWithoutResult(tx -> {
             if (skills.detail(principal.userId(), input.skillId()).view().version() != skill.view().version()) throw ApiException.conflict("技能版本已变化，请重新发起");
-            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                    job, principal.userId(), input.runId(), "skill:" + input.skillId(), "execute", "WAITING_CONFIRMATION", now, now);
+            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,operation_snapshot,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    job, principal.userId(), input.runId(), "skill:" + input.skillId(), snapshot, "execute", "WAITING_CONFIRMATION", now, now);
             db.update("INSERT INTO skill_script_actions(id,job_id,user_id,skill_id,skill_version,operation_json,operation_digest,status,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     action, job, principal.userId(), input.skillId(), skill.view().version(), snapshot,
                     digest(principal.userId(), job, action, input.skillId(), skill.view().version(), snapshot), "PENDING", now + 600_000L, now, now);

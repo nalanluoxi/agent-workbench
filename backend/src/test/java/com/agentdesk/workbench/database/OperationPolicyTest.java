@@ -57,4 +57,29 @@ class OperationPolicyTest {
 
         assertThatThrownBy(() -> policy.prepare("MYSQL", request, "BUILD")).hasMessageContaining("columns 数量一致");
     }
+
+    @Test void redisDiagnosticCommandsAreReadOnlyInChatAndBuild() throws Exception {
+        for (String command : OperationPolicy.REDIS_READS) {
+            String args = switch (command) {
+                case "SCAN" -> "{\"database\":0,\"pattern\":\"agent:*\",\"limit\":1000,\"cursor\":\"0\"}";
+                case "DBSIZE" -> "{\"database\":0}";
+                case "HGET" -> "{\"key\":\"hash\",\"field\":\"field\"}";
+                case "HGETALL", "SMEMBERS" -> "{\"key\":\"key\",\"cursor\":\"0\"}";
+                case "LRANGE", "ZRANGE" -> "{\"key\":\"key\",\"start\":0,\"stop\":10}";
+                default -> "{\"key\":\"key\"}";
+            };
+            var request = new OperationPolicy.OperationRequest("builtin-redis", command, json.readTree(args), null);
+            assertThat(policy.prepare("REDIS", request, "CHAT").write()).as(command).isFalse();
+            assertThat(policy.prepare("REDIS", request, "BUILD").write()).as(command).isFalse();
+        }
+    }
+
+    @Test void redisScanRejectsUnsafeArguments() throws Exception {
+        assertThatThrownBy(() -> policy.prepare("REDIS", new OperationPolicy.OperationRequest("builtin-redis", "SCAN",
+                json.readTree("{\"limit\":1001}"), null), "CHAT")).hasMessageContaining("1 到 1000");
+        assertThatThrownBy(() -> policy.prepare("REDIS", new OperationPolicy.OperationRequest("builtin-redis", "SCAN",
+                json.readTree("{\"pattern\":\"\"}"), null), "CHAT")).hasMessageContaining("pattern");
+        assertThatThrownBy(() -> policy.prepare("REDIS", new OperationPolicy.OperationRequest("builtin-redis", "SCAN",
+                json.readTree("{\"unexpected\":true}"), null), "CHAT")).hasMessageContaining("不支持的操作参数");
+    }
 }

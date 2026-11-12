@@ -103,6 +103,33 @@ class AgentRunTest {
                 .contains("COMPLETED");
     }
 
+    @Test void redisKeyDiscoveryUsesScanToolAndReturnsRealResult() throws Exception {
+        var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
+        var session = sessions.create("u", "Redis Key 扫描");
+        connections.create("u", new ConnectionService.ConnectionInput("REDIS", "local", "localhost", 6379, "0", "", ""));
+        String args = json.writeValueAsString(Map.of("toolId", ConnectionService.REDIS_TOOL, "command", "SCAN",
+                "args", Map.of("database", 0, "pattern", "*", "limit", 1000)));
+        AtomicInteger turns = new AtomicInteger();
+        when(gateway.complete(anyString(), anyString(), any(), any(), anyString(), anySet(), anySet(), any())).thenAnswer(invocation -> {
+            assertThat(invocation.<JsonNode>getArgument(3).get(0).path("content").asText())
+                    .contains("必须调用 SCAN").contains("不得使用或建议 KEYS *");
+            return turns.getAndIncrement() == 0
+                    ? new ModelGateway.ModelReply("", List.of(new ModelGateway.ToolCall("scan-1", "database_operation", args)))
+                    : new ModelGateway.ModelReply("已返回真实 Key 列表", List.of());
+        });
+        when(runner.execute(anyString(), anyString(), any())).thenReturn(json.valueToTree(Map.of("status", "COMPLETED", "result",
+                Map.of("items", List.of("one", "two"), "count", 2, "cursor", "0", "finished", true, "truncated", false, "pattern", "*", "limit", 1000))));
+
+        String run = start(session.id(), model.id(), "CHAT", "查看 Redis 有什么 Key");
+        waitFor(run, "completed");
+
+        assertThat(db.queryForObject("SELECT messages_json FROM run_contexts WHERE run_id=?", String.class, run))
+                .contains("SCAN");
+        verify(runner, times(1)).execute(anyString(), eq(run), any());
+        assertThat(sessions.messages("u", session.id())).extracting(SessionService.MessageView::content)
+                .contains("已返回真实 Key 列表");
+    }
+
     @Test void databaseIntentRejectsTextOnlyAnswerAndRetriesWithTool() throws Exception {
         var model = models.create("u", new ModelService.ModelInput("CHAT", "test", "compatible", "http://127.0.0.1:9090/v1", "demo", "secret", true));
         var session = sessions.create("u", "真实查询证据");

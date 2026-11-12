@@ -13,7 +13,10 @@ import org.springframework.stereotype.Component;
 public class OperationPolicy {
     public static final Set<String> MYSQL_READS = Set.of("DATABASES", "TABLES", "DESCRIBE", "SELECT");
     public static final Set<String> MYSQL_WRITES = Set.of("INSERT", "UPDATE", "DELETE");
-    public static final Set<String> REDIS_READS = Set.of("GET", "TTL", "HGET", "HGETALL", "LRANGE", "SMEMBERS", "ZRANGE", "XRANGE");
+    public static final Set<String> REDIS_READS = Set.of(
+            "SCAN", "TYPE", "EXISTS", "DBSIZE", "TTL", "PTTL",
+            "GET", "STRLEN", "HGET", "HGETALL", "HLEN", "LRANGE", "LLEN",
+            "SMEMBERS", "SCARD", "ZRANGE", "ZCARD", "XRANGE", "XLEN");
     public static final Set<String> REDIS_WRITES = Set.of("SET", "DEL", "EXPIRE", "HSET", "HDEL", "LPUSH", "RPUSH", "LSET", "LREM", "SADD", "SREM", "ZADD", "ZREM", "XADD", "XDEL");
     private final SqlGuard sqlGuard;
 
@@ -124,7 +127,23 @@ public class OperationPolicy {
 
     private void validateRedis(String command, JsonNode args) {
         switch (command) {
-            case "GET", "TTL", "DEL" -> only(args, "key");
+            case "SCAN" -> {
+                only(args, "pattern", "limit", "cursor");
+                if (args.has("pattern")) {
+                    JsonNode pattern = args.get("pattern");
+                    if (!pattern.isTextual() || pattern.asText().isEmpty() || pattern.asText().length() > 256) {
+                        throw ApiException.badRequest("SCAN pattern 应为 1 到 256 个字符");
+                    }
+                }
+                if (args.has("limit") && (!args.get("limit").canConvertToInt()
+                        || args.get("limit").asInt() < 1 || args.get("limit").asInt() > 1000)) {
+                    throw ApiException.badRequest("SCAN limit 应为 1 到 1000");
+                }
+                validateCursor(args);
+                return;
+            }
+            case "DBSIZE" -> { only(args); return; }
+            case "GET", "TYPE", "EXISTS", "TTL", "PTTL", "STRLEN", "HLEN", "LLEN", "SCARD", "ZCARD", "XLEN", "DEL" -> only(args, "key");
             case "HGETALL", "SMEMBERS" -> {
                 only(args, "key", "cursor");
                 if (args.has("cursor") && (!args.get("cursor").isTextual() || !args.get("cursor").asText().matches("[0-9]{1,20}"))) throw ApiException.badRequest("游标无效");
@@ -157,6 +176,13 @@ public class OperationPolicy {
             default -> throw ApiException.badRequest("不支持该操作");
         }
         text(args, "key", false);
+    }
+
+    private static void validateCursor(JsonNode args) {
+        if (args.has("cursor") && (!args.get("cursor").isTextual()
+                || !args.get("cursor").asText().matches("[0-9]{1,20}"))) {
+            throw ApiException.badRequest("游标无效");
+        }
     }
 
     private void fields(JsonNode node, boolean required) {

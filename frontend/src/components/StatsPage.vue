@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '../api.js';
+import StatusLabel from './StatusLabel.vue';
 
 const period = ref('7d'), data = ref(null), error = ref(''), busy = ref(false), activeDay = ref('');
+const recentExpanded = ref(false);
 const days = computed(() => [...new Set((data.value?.trends || []).map(item => item.day))]);
 const rawMax = computed(() => Math.max(1, ...(data.value?.trends || []).map(item => item.runs)));
 const tickStep = computed(() => Math.max(1, Math.ceil(rawMax.value / 4)));
@@ -13,6 +15,7 @@ const activeValues = computed(() => ({
   chat: data.value?.trends.find(item => item.day === activeDay.value && item.mode === 'CHAT')?.runs || 0,
   build: data.value?.trends.find(item => item.day === activeDay.value && item.mode === 'BUILD')?.runs || 0
 }));
+const visibleRecent = computed(() => (data.value?.recent || []).slice(0, recentExpanded.value ? 20 : 8));
 function x(index) { return days.value.length < 2 ? 325 : 45 + index * (565 / (days.value.length - 1)); }
 function y(value) { return 145 - value * 115 / maxRuns.value; }
 function points(mode) {
@@ -63,11 +66,11 @@ onMounted(load);
 
         <section class="dashboard-panel"><div class="panel-title"><div><h2>工具调用排名</h2><p>调用量与成功率</p></div></div><div class="rank-list"><div v-for="item in data.toolRanking" :key="item.label" class="rank-row"><div><strong>{{ item.label }}</strong><span>{{ item.calls }} 次</span></div><div class="bar"><i :style="{ width: percent(item.successRate) }"></i></div><b>{{ item.successRate }}%</b></div><p v-if="!data.toolRanking.length" class="quiet-state">当前周期暂无工具调用</p></div></section>
 
-        <section class="dashboard-panel"><div class="panel-title"><div><h2>意图路由分布</h2><p>首阶段分类结果</p></div></div><div class="intent-list"><div v-for="item in data.intents" :key="item.intent"><code>{{ item.intent }}</code><strong>{{ item.count }}</strong></div><p v-if="!data.intents.length" class="quiet-state">当前周期暂无路由记录</p></div></section>
+        <section class="dashboard-panel"><div class="panel-title"><div><h2>意图路由分布</h2><p>首阶段分类结果</p></div></div><div class="intent-list"><div v-for="item in data.intents" :key="item.intent"><StatusLabel :code="item.intent" compact /><strong>{{ item.count }}</strong></div><p v-if="!data.intents.length" class="quiet-state">当前周期暂无路由记录</p></div></section>
 
-        <section class="dashboard-panel confirmations"><div class="panel-title"><div><h2>确认状态</h2><p>人工确认状态机分布</p></div></div><div class="confirmation-grid"><div v-for="(count,status) in data.confirmations" :key="status"><span>{{ status }}</span><strong>{{ count }}</strong></div><p v-if="!Object.keys(data.confirmations).length" class="quiet-state">当前周期暂无确认动作</p></div></section>
+        <section class="dashboard-panel confirmations"><div class="panel-title"><div><h2>确认状态</h2><p>人工确认状态机分布</p></div></div><div class="confirmation-grid"><div v-for="(count,status) in data.confirmations" :key="status"><StatusLabel :code="status" compact /><strong>{{ count }}</strong></div><p v-if="!Object.keys(data.confirmations).length" class="quiet-state">当前周期暂无确认动作</p></div></section>
 
-        <section class="dashboard-panel recent-panel"><div class="panel-title"><div><h2>最近操作</h2><p>最近 20 条工具任务</p></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>资源</th><th>状态</th><th>时间</th><th>错误</th></tr></thead><tbody><tr v-for="item in data.recent" :key="item.id"><td class="mono">{{ item.resource }}</td><td><span class="status-pill" :class="item.status === 'COMPLETED' ? 'ok' : item.status === 'FAILED' ? 'bad' : ''">{{ item.status }}</span></td><td>{{ formatTime(item.createdAt) }}</td><td class="muted">{{ item.error || '—' }}</td></tr><tr v-if="!data.recent.length"><td colspan="4" class="muted">暂无操作记录</td></tr></tbody></table></div></section>
+        <section class="dashboard-panel recent-panel"><div class="panel-title"><div><h2>最近操作</h2><p>首屏 8 条，可展开最近 20 条工具任务</p></div><button v-if="data.recent.length>8" class="secondary" @click="recentExpanded=!recentExpanded">{{ recentExpanded?'收起':'展开全部' }}</button></div><div class="table-wrap recent-table-wrap" :class="{expanded:recentExpanded}"><table class="data-table"><thead><tr><th>工具 / 操作</th><th>目标</th><th>影响 / 返回</th><th>状态</th><th>时间</th><th>错误</th></tr></thead><tbody><tr v-for="item in visibleRecent" :key="item.id"><td><strong>{{ item.toolName || item.resource }}</strong><small class="table-subtext">{{ item.command || '未记录命令' }} · {{ item.runId ? item.runId.slice(0,8) : item.id.slice(0,8) }}</small></td><td class="mono">{{ item.target || '—' }}</td><td>{{ item.impact || '—' }}</td><td><StatusLabel :code="item.status" compact /></td><td>{{ formatTime(item.createdAt) }}</td><td class="muted">{{ item.error || '—' }}</td></tr><tr v-if="!data.recent.length"><td colspan="6" class="muted">暂无操作记录</td></tr></tbody></table></div></section>
       </div>
     </template>
   </main>

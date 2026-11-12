@@ -15,7 +15,8 @@ const help = `ZWD-AWDP（ZWD Agent Workbench & Development Platform）CLI
   agentdesk mcp list | show <ID> | create | update <ID> | delete <ID> | refresh <ID> | tools <ID>
   agentdesk mcp enable-tool <服务 ID> <工具名> | disable-tool <服务 ID> <工具名> | call
   agentdesk skills list | show <ID> | scripts <ID> | run <ID> | install-local <目录> | install-zip <文件> | install-github | update <ID> | refresh <ID> | enable <ID> | disable <ID> | delete <ID>
-  agentdesk memories list [层级] | show <ID> | create | update <ID> | delete <ID> | jobs | retry <运行 ID>
+  agentdesk memories list [层级] | show <类型> <ID> | create | edit <类型> <ID> | delete <类型> <ID>
+  agentdesk memories restore <类型> <ID> | revisions <类型> <ID> | rollback <类型> <ID> | rebuild | jobs | retry <运行 ID>
 模型、MCP 的 create/update 与 MCP call 从标准输入读取 JSON，避免把密钥写入命令参数。
 模型 create/update 前必须先执行 models test，并把返回的 testToken 放入保存参数。`;
 
@@ -135,10 +136,15 @@ async function main() {
   }
   if (group === 'memories') {
     if (action === 'list') output(await request(`/api/memories${id ? '?layer=' + encodeURIComponent(id) : ''}`));
-    else if (action === 'show') output(await request(`/api/memories/${needId()}`));
+    else if (action === 'show') output(await request(extra ? `/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}` : `/api/memories/${needId()}`));
     else if (action === 'create') output(await request('/api/memories', { method: 'POST', body: await stdinJson() }));
     else if (action === 'update') output(await request(`/api/memories/${needId()}`, { method: 'PUT', body: await stdinJson() }));
-    else if (action === 'delete') { if (await prompt('删除记忆将清理依赖的场景和画像，输入“确认删除”：') !== '确认删除') throw new Error('未确认删除'); output(await request(`/api/memories/${needId()}`, { method: 'DELETE' })); }
+    else if (action === 'edit') { if (!id || !extra) throw new Error('请提供类型和 ID'); output(await request(`/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}`, { method: 'PATCH', body: await stdinJson() })); }
+    else if (action === 'delete') { if (!id || !extra) throw new Error('请提供类型和 ID'); if (await prompt('该记忆会永久保留在回收站但立即停止召回，输入“确认删除”：') !== '确认删除') throw new Error('未确认删除'); output(await request(`/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}`, { method: 'DELETE' })); }
+    else if (action === 'restore') { if (!id || !extra) throw new Error('请提供类型和 ID'); output(await request(`/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}/restore`, { method: 'POST' })); }
+    else if (action === 'revisions') { if (!id || !extra) throw new Error('请提供类型和 ID'); output(await request(`/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}/revisions`)); }
+    else if (action === 'rollback') { if (!id || !extra) throw new Error('请提供类型和 ID'); output(await request(`/api/memories/${encodeURIComponent(id)}/${encodeURIComponent(extra)}/rollback`, { method: 'POST', body: await stdinJson() })); }
+    else if (action === 'rebuild') output(await request('/api/memories/rebuild', { method: 'POST', body: await stdinJson() }));
     else if (action === 'jobs') output(await request('/api/memory-jobs'));
     else if (action === 'retry') output(await request(`/api/memory-jobs/${needId()}/retry`, { method: 'POST' }));
     else throw new Error('不支持的记忆命令');

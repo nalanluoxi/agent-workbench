@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import StatusLabel from './StatusLabel.vue';
 
 const props = defineProps({ job: Object, busy: Boolean, compact: Boolean });
 const emit = defineEmits(['decide']);
@@ -21,6 +22,9 @@ const actionName = computed(() => command.value === 'SQL' ? sqlVerb.value : comm
 const danger = computed(() => ['DELETE', 'DROP', 'DROP TABLE', 'TRUNCATE', 'TRUNCATE TABLE'].includes(actionName.value)
   || String(operation.value.args?.risk || '').toUpperCase() === 'DANGER');
 const rows = computed(() => Array.isArray(props.job?.result) ? props.job.result : null);
+const scanResult = computed(() => Array.isArray(props.job?.result?.items) && typeof props.job?.result?.pattern === 'string' ? props.job.result : null);
+const expiryResult = computed(() => ['EXPIRING', 'PERSISTENT', 'MISSING'].includes(props.job?.result?.status) ? props.job.result : null);
+const scalarResult = computed(() => props.job?.result && Object.keys(props.job.result).length === 1 && Object.hasOwn(props.job.result, 'value') ? props.job.result.value : undefined);
 const columns = computed(() => {
   const names = new Set();
   for (const row of rows.value || []) if (row && typeof row === 'object') Object.keys(row).forEach(key => names.add(key));
@@ -81,7 +85,7 @@ function display(value) {
   <article v-if="pending" class="operation-card approval-card" :class="{ destructive: danger, compact }" role="group" aria-label="待确认数据库操作">
     <header class="operation-card-header">
       <div><p class="operation-kicker">数据库操作</p><h3>{{ danger ? '高风险操作待确认' : '数据库变更待确认' }}</h3></div>
-      <span class="status-pill" :class="danger ? 'bad' : 'warn'">{{ danger ? '高风险' : '待确认' }}</span>
+      <span v-if="danger" class="status-pill bad">高风险</span><StatusLabel v-else code="PENDING" compact />
     </header>
     <p class="operation-summary">系统尚未执行。请核对以下操作内容，再决定是否继续。</p>
     <div class="operation-meta" aria-label="操作摘要">
@@ -111,8 +115,28 @@ function display(value) {
   </article>
 
   <article v-else-if="job?.status === 'COMPLETED' && job?.result !== undefined && job?.result !== null" class="operation-card result-card" :class="{ compact }" aria-label="数据库操作结果">
-    <header class="operation-card-header"><div><p class="operation-kicker">数据库结果</p><h3>{{ operation.command ? '数据库变更已完成' : '查询已完成' }}</h3></div><span class="status-pill ok">已完成</span></header>
-    <template v-if="rows && !operation.command">
+    <header class="operation-card-header"><div><p class="operation-kicker">数据库结果</p><h3>{{ operation.command ? '数据库变更已完成' : '查询已完成' }}</h3></div><StatusLabel code="COMPLETED" compact /></header>
+    <template v-if="scanResult">
+      <div class="scan-summary" role="status">
+        <span><small>匹配规则</small><strong class="mono">{{ scanResult.pattern }}</strong></span>
+        <span><small>本次返回</small><strong>{{ scanResult.count }} 个 Key</strong></span>
+        <span><small>扫描状态</small><strong>{{ scanResult.truncated ? '已达上限' : '扫描完成' }}</strong></span>
+      </div>
+      <p v-if="scanResult.truncated" class="operation-impact"><span aria-hidden="true">!</span>结果已按 {{ scanResult.limit }} 个 Key 上限截断。{{ scanResult.cursor !== '0' ? '可使用下方按钮从当前游标继续。' : '请使用更精确的 pattern 缩小范围。' }}</p>
+      <ul v-if="scanResult.items.length" class="redis-key-list" aria-label="Redis Key 列表"><li v-for="item in scanResult.items" :key="item" class="mono">{{ item }}</li></ul>
+      <p v-else class="quiet-state">扫描完成，没有匹配的 Key。</p>
+    </template>
+    <template v-else-if="expiryResult">
+      <div class="scan-summary" role="status">
+        <span><small>过期状态</small><strong>{{ expiryResult.status === 'EXPIRING' ? '已设置过期时间' : expiryResult.status === 'PERSISTENT' ? '永久有效' : 'Key 不存在' }}</strong></span>
+        <span v-if="expiryResult.status === 'EXPIRING'"><small>剩余时间</small><strong>{{ expiryResult.ttlMs }} ms</strong></span>
+        <span v-if="expiryResult.expiresAt"><small>预计过期</small><strong>{{ new Date(expiryResult.expiresAt).toLocaleString('zh-CN', { hour12: false }) }}</strong></span>
+      </div>
+    </template>
+    <template v-else-if="scalarResult !== undefined">
+      <div class="scalar-result"><small>真实返回值</small><strong class="mono">{{ display(scalarResult) }}</strong></div>
+    </template>
+    <template v-else-if="rows && !operation.command">
       <p class="operation-summary">共返回 {{ rows.length }} 行真实数据。</p>
       <div v-if="rows.length" class="result-table-wrap"><table class="result-table"><thead><tr><th v-for="column in columns" :key="column">{{ column }}</th></tr></thead><tbody><tr v-for="(row,index) in rows" :key="index"><td v-for="column in columns" :key="column" class="mono">{{ display(row[column]) }}</td></tr></tbody></table></div>
       <p v-else class="quiet-state">查询执行成功，没有匹配的数据。</p>
@@ -121,7 +145,7 @@ function display(value) {
   </article>
 
   <article v-else-if="actionStatus && actionStatus !== 'PENDING'" class="operation-card history-card" :class="[compact ? 'compact' : '', `history-${statusMeta.tone}`]" aria-label="数据库操作最终状态">
-    <header class="operation-card-header"><div><p class="operation-kicker">数据库操作记录</p><h3>{{ statusMeta.title }}</h3></div><span class="status-pill" :class="statusMeta.tone">{{ statusMeta.label }}</span></header>
+    <header class="operation-card-header"><div><p class="operation-kicker">数据库操作记录</p><h3>{{ statusMeta.title }}</h3></div><StatusLabel :code="actionStatus" compact /></header>
     <p class="history-summary"><strong>{{ actionLabel }}</strong><span class="mono">{{ targetSummary }}</span></p>
     <details class="history-details">
       <summary>查看操作详情</summary>
@@ -131,7 +155,7 @@ function display(value) {
   </article>
 
   <article v-else-if="job?.error" class="operation-card operation-error" role="alert">
-    <header class="operation-card-header"><div><p class="operation-kicker">数据库操作</p><h3>数据库操作未完成</h3></div><span class="status-pill bad">失败</span></header>
+    <header class="operation-card-header"><div><p class="operation-kicker">数据库操作</p><h3>数据库操作未完成</h3></div><StatusLabel code="FAILED" compact /></header>
     <p>{{ job.error }}</p>
     <p class="operation-summary">系统已阻止继续执行；请根据上方真实错误标识检查对应的数据约束、字段、对象或连接状态。</p>
   </article>

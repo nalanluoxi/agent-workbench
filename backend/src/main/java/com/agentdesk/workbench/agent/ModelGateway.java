@@ -174,7 +174,7 @@ public class ModelGateway {
         if (!toolIds.isEmpty()) {
             Map<String, Object> properties = Map.of("toolId", Map.of("type", "string", "enum", toolIds, "description", "固定内置工具 ID"),
                 "command", Map.of("type", "string", "enum", commands.stream().distinct().sorted().toList(), "description", "当前模式允许的操作。MySQL 多行 INSERT 使用 INSERT 命令并传 columns 与二维 values；任意单条 SQL/DDL 使用 SQL 命令。"),
-                "args", Map.of("type", "object", "description", "严格参数格式：MySQL 单行 INSERT={database?,table,values对象}；多行 INSERT={database?,table,columns字符串数组,values二维数组}；SQL={database?,sql}；SELECT={database?,table,columns?,where?,limit?}。", "additionalProperties", true));
+                "args", Map.of("type", "object", "description", "严格参数格式：MySQL 单行 INSERT={database?,table,values对象}；多行 INSERT={database?,table,columns字符串数组,values二维数组}；SQL={database?,sql}；SELECT={database?,table,columns?,where?,limit?}。Redis SCAN={database?,pattern?,limit?,cursor?}；DBSIZE={database?}；其他元信息命令={database?,key}。", "additionalProperties", true));
             result.add(Map.of("type", "function", "function", Map.of("name", "database_operation",
                     "description", build ? "调用固定 MySQL/Redis CLI。所有数据变更都需要用户二次确认。" : "调用固定 MySQL/Redis CLI；Chat 模式仅允许读取。",
                     "parameters", Map.of("type", "object", "properties", properties, "required", List.of("toolId", "command", "args")))));

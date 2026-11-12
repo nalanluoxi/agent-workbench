@@ -2,6 +2,8 @@ package com.agentdesk.workbench.stats;
 
 import com.agentdesk.workbench.auth.Principal;
 import com.agentdesk.workbench.core.ApiException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -16,9 +18,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class StatsService {
     private final JdbcTemplate db;
+    private final ObjectMapper json;
 
-    public StatsService(JdbcTemplate db) {
+    public StatsService(JdbcTemplate db, ObjectMapper json) {
         this.db = db;
+        this.json = json;
     }
 
     public Dashboard dashboard(Principal principal, String period, String scope) {
@@ -103,9 +107,43 @@ public class StatsService {
     }
 
     private List<RecentItem> recent(QueryScope filter) {
-        return db.query("SELECT id,connection_id,status,error,created_at FROM workflow_jobs WHERE created_at>=?" + filter.userClause() + " ORDER BY created_at DESC LIMIT 20",
-                (rs, n) -> new RecentItem(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getLong(5)), filter.args());
+        String sql = "SELECT w.id,w.connection_id,w.run_id,w.status,w.error,w.created_at,c.type,c.name,"
+                + "COALESCE(w.operation_snapshot,d.operation_json,m.operation_json,s.operation_json),w.result_json "
+                + "FROM workflow_jobs w LEFT JOIN db_connections c ON c.id=w.connection_id "
+                + "LEFT JOIN db_actions d ON d.job_id=w.id LEFT JOIN mcp_actions m ON m.job_id=w.id "
+                + "LEFT JOIN skill_script_actions s ON s.job_id=w.id WHERE w.created_at>=?" + filter.userClause().replace("user_id", "w.user_id")
+                + " ORDER BY w.created_at DESC LIMIT 20";
+        return db.query(sql, (rs, n) -> recentItem(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4),
+                rs.getString(5), rs.getLong(6), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10)), filter.args());
     }
+
+    private RecentItem recentItem(String id, String resource, String runId, String status, String error, long createdAt,
+                                  String connectionType, String connectionName, String operationJson, String resultJson) {
+        JsonNode operation = parse(operationJson);
+        JsonNode args = operation.path("args");
+        String toolName;
+        if (resource.startsWith("mcp:")) toolName = "MCP";
+        else if (resource.startsWith("skill:")) toolName = operation.path("skillName").asText("Skill Script");
+        else toolName = connectionType == null ? (connectionName == null ? resource : connectionName) : connectionType + " CLI";
+        String command = first(operation.path("command").asText(""), operation.path("toolName").asText(""), operation.path("script").asText(""));
+        String database = args.path("database").asText("");
+        String table = args.path("table").asText("");
+        String key = args.path("key").asText("");
+        String target = !table.isBlank() ? (database.isBlank() ? table : database + "." + table) : !key.isBlank() ? key : database;
+        JsonNode result = parse(resultJson);
+        String impact = first(text(operation.path("impact").path("summary")), text(result.path("affectedRows")),
+                text(result.path("count")), text(result.path("returned")));
+        return new RecentItem(id, resource, status, error, createdAt, runId, toolName, command, target, impact);
+    }
+
+    private JsonNode parse(String value) {
+        if (value == null || value.isBlank()) return json.createObjectNode();
+        try { return json.readTree(value); }
+        catch (Exception ignored) { return json.createObjectNode(); }
+    }
+
+    private String text(JsonNode value) { return value == null || value.isMissingNode() || value.isNull() ? "" : value.asText(); }
+    private String first(String... values) { for (String value : values) if (value != null && !value.isBlank()) return value; return ""; }
 
     private long count(String sql, Object[] args) {
         Long value = db.queryForObject(sql, Long.class, args);
@@ -142,5 +180,6 @@ public class StatsService {
     public record RankItem(String label, long calls, double successRate) {}
     public record IntentItem(String intent, long count) {}
     public record ResourceSummary(long tools, long enabledTools, long skills, long enabledSkills, long mcpTools, long enabledMcpTools) {}
-    public record RecentItem(String id, String resource, String status, String error, long createdAt) {}
+    public record RecentItem(String id, String resource, String status, String error, long createdAt, String runId,
+                             String toolName, String command, String target, String impact) {}
 }

@@ -97,6 +97,14 @@ public class MemoryRedisStore {
         connection.sync().setex(prefix + "context:" + userId + ":" + sessionId + ":" + version(userId), 300, json);
     }
 
+    public String cachedSessionWindow(String userId, String sessionId) {
+        return connection.sync().get(prefix + "session-window:" + userId + ":" + sessionId + ":" + version(userId));
+    }
+
+    public void cacheSessionWindow(String userId, String sessionId, String json) {
+        connection.sync().setex(prefix + "session-window:" + userId + ":" + sessionId + ":" + version(userId), 300, json);
+    }
+
     private String streamKey() { return prefix + "capture:stream"; }
 
     private void ensureStreamGroup() {

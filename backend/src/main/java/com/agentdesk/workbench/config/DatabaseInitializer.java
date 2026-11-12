@@ -43,6 +43,8 @@ public class DatabaseInitializer implements ApplicationRunner {
         if (mcpColumn == null || mcpColumn == 0) db.execute("ALTER TABLE run_contexts ADD COLUMN mcp_tools_json TEXT NOT NULL DEFAULT '[]'");
         Integer workflowSnapshot = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('workflow_jobs') WHERE name='workflow_snapshot'", Integer.class);
         if (workflowSnapshot == null || workflowSnapshot == 0) db.execute("ALTER TABLE workflow_jobs ADD COLUMN workflow_snapshot TEXT");
+        Integer operationSnapshot = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('workflow_jobs') WHERE name='operation_snapshot'", Integer.class);
+        if (operationSnapshot == null || operationSnapshot == 0) db.execute("ALTER TABLE workflow_jobs ADD COLUMN operation_snapshot TEXT");
         Integer mcpBundle = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('mcp_servers') WHERE name='bundle_hash'", Integer.class);
         if (mcpBundle == null || mcpBundle == 0) db.execute("ALTER TABLE mcp_servers ADD COLUMN bundle_hash TEXT");
         Integer mcpReadOnly = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('mcp_tools') WHERE name='read_only'", Integer.class);
@@ -53,6 +55,12 @@ public class DatabaseInitializer implements ApplicationRunner {
         if (messageMode == null || messageMode == 0) db.execute("ALTER TABLE messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'CHAT' CHECK(mode IN ('CHAT','BUILD'))");
         Integer titleLocked = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='title_locked'", Integer.class);
         if (titleLocked == null || titleLocked == 0) db.execute("ALTER TABLE sessions ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db, "memories", "source_kind", "TEXT NOT NULL DEFAULT 'USER_MESSAGE'");
+        addColumnIfMissing(db, "memories", "confidence", "REAL NOT NULL DEFAULT 0.5");
+        addColumnIfMissing(db, "memories", "verified", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db, "memories", "manual_locked", "INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db, "memories", "deleted_at", "INTEGER");
+        addColumnIfMissing(db, "memories", "deleted_by", "TEXT");
         long now = System.currentTimeMillis();
         db.update("DELETE FROM model_test_tokens WHERE expires_at<=?", now);
         db.update("INSERT OR IGNORE INTO builtin_tool_settings(user_id,tool_id,enabled,updated_at) SELECT id,'builtin-mysql',1,? FROM users", now);
@@ -64,6 +72,11 @@ public class DatabaseInitializer implements ApplicationRunner {
         db.update("UPDATE workflow_jobs SET status='UNKNOWN',error='服务中断，脚本执行结果待核查',updated_at=? WHERE id IN (SELECT job_id FROM skill_script_actions WHERE status='EXECUTING')", now);
         db.update("UPDATE skill_script_actions SET status='UNKNOWN',error='服务中断，脚本执行结果待核查',updated_at=? WHERE status='EXECUTING'", now);
         initializeDefaultAdmin(db);
+    }
+
+    private void addColumnIfMissing(JdbcTemplate db, String table, String column, String definition) {
+        Integer count = db.queryForObject("SELECT COUNT(*) FROM pragma_table_info('" + table + "') WHERE name=?", Integer.class, column);
+        if (count == null || count == 0) db.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
     }
 
     private void initializeDefaultAdmin(JdbcTemplate db) {

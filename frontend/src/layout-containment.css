@@ -1,0 +1,14 @@
+@media (min-width:1181px){
+  .app-shell.has-inspector{height:100dvh;min-height:0;overflow:hidden}
+  .app-shell.has-inspector>.sidebar,.app-shell.has-inspector>.workspace-main,.app-shell.has-inspector>.inspector{height:100dvh;min-height:0}
+  .app-shell.has-inspector>.workspace-main{overflow:hidden}
+  .app-shell.has-inspector .conversation{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .app-shell.has-inspector .composer-wrap{flex:none}
+  .inspector{overflow:hidden}
+  .inspector-heading,.inspector-section,.inspector-bottom{flex:none}
+  .inspector .activity-section{display:flex;flex:1;min-height:160px;flex-direction:column;overflow:hidden}
+  .inspector .activity{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:6px}
+}
+.current-run>.status-label{margin-top:11px}.memory-summary-preview{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow-wrap:anywhere}.context-counts,.memory-job-counts{display:grid;gap:6px;margin-top:11px}.context-counts span,.memory-job-counts span{padding:5px 7px;border:1px solid #30405b;border-radius:4px;background:#141d2b;color:#a9bce0;font-size:9px}.memory-job-counts{grid-template-columns:repeat(3,minmax(0,1fr))}.memory-job-counts span{border-color:#353d46;background:#14191f;color:#aab3bd;text-align:center}.recall-meta{display:grid;gap:6px;margin-top:11px;color:#8793a0;font-size:9px}.warning-text{color:#e2bd7b}.activity li{align-items:flex-start}.activity li>details{min-width:0;flex:1}.activity summary{display:flex;align-items:center;justify-content:space-between;gap:7px;cursor:pointer;list-style:none}.activity summary::-webkit-details-marker{display:none}.activity summary span{color:#6f7a86;font-size:9px}.activity-entry{padding:8px 0 2px;border-top:1px solid var(--line-soft)}.activity-entry:first-of-type{margin-top:7px}.activity-entry p{overflow-wrap:anywhere}
+@media(max-width:1180px) and (min-width:821px){.app-shell.has-inspector{height:100dvh;min-height:0;overflow:hidden}.app-shell.has-inspector>.workspace-main{height:100dvh;min-height:0;overflow:hidden}.app-shell.has-inspector .conversation{min-height:0;overflow-y:auto}.app-shell.has-inspector .composer-wrap{flex:none}}
+@media(max-width:820px){.app-shell.has-inspector,.app-shell.has-inspector>.workspace-main{height:auto;overflow:visible}.conversation{overflow:visible}}

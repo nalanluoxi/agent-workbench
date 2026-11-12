@@ -78,6 +78,28 @@ class RealRedisIntegrationTest {
             assertThat(redis.sync().zscore("zset", "v")).isEqualTo(1.0);
             assertThat(redis.sync().xlen("stream")).isEqualTo(1);
             assertThat(create(user, connection.id(), "GET", Map.of("key", "string")).status()).isEqualTo("COMPLETED");
+            assertThat(create(user, connection.id(), "TYPE", Map.of("key", "stream")).result().path("value").asText()).isEqualTo("stream");
+            assertThat(create(user, connection.id(), "EXISTS", Map.of("key", "string")).result().path("value").asBoolean()).isTrue();
+            assertThat(create(user, connection.id(), "DBSIZE", Map.of()).result().path("value").asLong()).isGreaterThanOrEqualTo(6);
+            assertThat(create(user, connection.id(), "STRLEN", Map.of("key", "string")).result().path("value").asLong()).isEqualTo(3);
+            assertThat(create(user, connection.id(), "HLEN", Map.of("key", "hash")).result().path("value").asLong()).isEqualTo(1);
+            assertThat(create(user, connection.id(), "LLEN", Map.of("key", "list")).result().path("value").asLong()).isEqualTo(1);
+            assertThat(create(user, connection.id(), "SCARD", Map.of("key", "set")).result().path("value").asLong()).isEqualTo(1);
+            assertThat(create(user, connection.id(), "ZCARD", Map.of("key", "zset")).result().path("value").asLong()).isEqualTo(1);
+            assertThat(create(user, connection.id(), "XLEN", Map.of("key", "stream")).result().path("value").asLong()).isEqualTo(1);
+            redis.sync().pexpire("string", 60_000);
+            var expiry = create(user, connection.id(), "PTTL", Map.of("key", "string")).result();
+            assertThat(expiry.path("status").asText()).isEqualTo("EXPIRING");
+            assertThat(expiry.path("ttlMs").asLong()).isBetween(1L, 60_000L);
+            assertThat(expiry.path("expiresAtEpochMs").asLong()).isGreaterThan(System.currentTimeMillis());
+            assertThat(create(user, connection.id(), "PTTL", Map.of("key", "missing")).result().path("status").asText()).isEqualTo("MISSING");
+            for (int i = 0; i < 220; i++) redis.sync().set("scan:item:" + i, "v");
+            var scan = create(user, connection.id(), "SCAN", Map.of("pattern", "scan:item:*", "limit", 1000)).result();
+            assertThat(scan.path("items")).hasSize(220);
+            assertThat(scan.path("finished").asBoolean()).isTrue();
+            var bounded = create(user, connection.id(), "SCAN", Map.of("pattern", "scan:item:*", "limit", 20)).result();
+            assertThat(bounded.path("items")).hasSize(20);
+            assertThat(bounded.path("truncated").asBoolean()).isTrue();
             assertThatThrownBy(() -> create(user, connection.id(), "XSET", Map.of("key", "stream")))
                     .isInstanceOf(ApiException.class).hasMessageContaining("不能原地修改");
         }

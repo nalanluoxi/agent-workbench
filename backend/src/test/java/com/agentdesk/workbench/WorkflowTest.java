@@ -143,6 +143,19 @@ class WorkflowTest {
         verifyNoInteractions(mysql, redis);
     }
 
+    @Test void redisDiagnosticsRunDirectlyWithoutConfirmation() throws Exception {
+        String redisId = createConnection("REDIS", "0");
+        when(redis.execute(any(), any())).thenReturn(Map.of("items", java.util.List.of("one", "two"),
+                "count", 2, "cursor", "0", "finished", true, "truncated", false, "pattern", "*", "limit", 1000));
+
+        JsonNode result = create(redisId, "SCAN", Map.of("pattern", "*", "limit", 1000), "owner");
+
+        assertThat(result.path("status").asText()).isEqualTo("COMPLETED");
+        assertThat(result.path("action").isNull()).isTrue();
+        assertThat(result.path("result").path("items")).hasSize(2);
+        verify(redis, times(1)).execute(any(), argThat(operation -> !operation.write() && operation.command().equals("SCAN")));
+    }
+
     private String connection() throws Exception { return createConnection("MYSQL", "demo"); }
     private String createConnection(String type, String database) throws Exception {
         return connections.create("owner", new ConnectionService.ConnectionInput(type, "test", "127.0.0.1", type.equals("MYSQL") ? 3306 : 6379, database, "", "")).id();

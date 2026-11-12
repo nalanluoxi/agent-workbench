@@ -154,8 +154,8 @@ public class McpService {
         if (snapshot.length() > 1_000_000) throw ApiException.badRequest("MCP 调用参数过大");
         String jobId = UUID.randomUUID().toString(), actionId = UUID.randomUUID().toString(); long now = System.currentTimeMillis();
         tx.executeWithoutResult(status -> {
-            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                    jobId, principal.userId(), input.runId(), "mcp:" + input.serverId(), "execute", "WAITING_CONFIRMATION", now, now);
+            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,operation_snapshot,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    jobId, principal.userId(), input.runId(), "mcp:" + input.serverId(), snapshot, "execute", "WAITING_CONFIRMATION", now, now);
             String digest = digest(principal.userId(), jobId, actionId, server.id(), server.version(), snapshot);
             db.update("INSERT INTO mcp_actions(id,job_id,user_id,server_id,server_version,operation_json,operation_digest,status,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     actionId, jobId, principal.userId(), server.id(), server.version(), snapshot, digest, "PENDING", now + 600_000, now, now);

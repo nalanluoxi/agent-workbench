@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '../api.js';
 import DatabaseOperationCard from './DatabaseOperationCard.vue';
 
@@ -11,12 +11,24 @@ const job = ref(null), error = ref(''), busy = ref(false);
 const toolId = computed(() => props.type === 'MYSQL' ? 'builtin-mysql' : 'builtin-redis');
 const options = computed(() => props.type === 'MYSQL'
   ? ['SQL', 'DATABASES', 'TABLES', 'DESCRIBE', 'SELECT', 'INSERT', 'UPDATE', 'DELETE']
-  : ['GET', 'SET', 'DEL', 'TTL', 'EXPIRE', 'HGET', 'HGETALL', 'HSET', 'HDEL', 'LRANGE', 'LPUSH', 'RPUSH', 'LSET', 'LREM', 'SMEMBERS', 'SADD', 'SREM', 'ZRANGE', 'ZADD', 'ZREM', 'XRANGE', 'XADD', 'XDEL']);
+  : ['SCAN', 'TYPE', 'EXISTS', 'DBSIZE', 'TTL', 'PTTL', 'GET', 'STRLEN', 'SET', 'DEL', 'EXPIRE', 'HGET', 'HGETALL', 'HLEN', 'HSET', 'HDEL', 'LRANGE', 'LLEN', 'LPUSH', 'RPUSH', 'LSET', 'LREM', 'SMEMBERS', 'SCARD', 'SADD', 'SREM', 'ZRANGE', 'ZCARD', 'ZADD', 'ZREM', 'XRANGE', 'XLEN', 'XADD', 'XDEL']);
 const risky = computed(() => command.value === 'SQL'
   ? /^(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE)\b/i.test(sql.value.trim())
   : tool.value?.confirmationList?.includes(command.value));
 
 onMounted(async () => { try { tool.value = (await api('/api/tools')).find(item => item.id === toolId.value); } catch (e) { error.value = e.message; } });
+const redisExamples = {
+  SCAN: { database: 0, pattern: '*', limit: 1000 }, DBSIZE: { database: 0 },
+  TYPE: { database: 0, key: 'example:key' }, EXISTS: { database: 0, key: 'example:key' },
+  TTL: { database: 0, key: 'example:key' }, PTTL: { database: 0, key: 'example:key' },
+  GET: { database: 0, key: 'example:key' }, STRLEN: { database: 0, key: 'example:key' },
+  HLEN: { database: 0, key: 'example:hash' }, LLEN: { database: 0, key: 'example:list' },
+  SCARD: { database: 0, key: 'example:set' }, ZCARD: { database: 0, key: 'example:zset' },
+  XLEN: { database: 0, key: 'example:stream' },
+};
+watch(command, value => {
+  if (props.type === 'REDIS' && redisExamples[value]) args.value = JSON.stringify(redisExamples[value], null, 2);
+});
 async function submit() {
   error.value = ''; busy.value = true; job.value = null;
   try {
@@ -28,6 +40,14 @@ async function submit() {
   finally { busy.value = false; }
 }
 async function decide(decision) { error.value = ''; busy.value = true; try { job.value = await api(`/api/actions/${job.value.action.id}/${decision}`, { method: 'POST' }); } catch (e) { error.value = e.message; } finally { busy.value = false; } }
+async function continueScan() {
+  const result = job.value?.result;
+  if (!result?.cursor || result.cursor === '0') return;
+  const value = JSON.parse(args.value);
+  value.cursor = result.cursor;
+  args.value = JSON.stringify(value, null, 2);
+  await submit();
+}
 </script>
 
 <template>
@@ -36,7 +56,7 @@ async function decide(decision) { error.value = ''; busy.value = true; try { job
     <div class="page-heading"><div><p class="eyebrow">FIXED CLI TOOL</p><h1>{{ type === 'MYSQL' ? 'MySQL CLI' : 'Redis CLI' }}</h1><p class="muted">固定本机工具入口；不再为每个数据库维护一条连接记录。</p></div><div v-if="tool" class="tool-health"><span class="status-pill" :class="tool.configured ? 'ok' : 'warn'">{{ tool.configured ? '已注册' : '未注册' }}</span><span class="status-pill" :class="tool.enabled ? 'ok' : 'bad'">{{ tool.enabled ? '已启用' : '已停用' }}</span></div></div>
     <div class="split-page">
       <form class="form-card" @submit.prevent="submit"><div class="fixed-target"><span>固定目标</span><strong>{{ tool?.host || '未注册' }}<template v-if="tool?.port">:{{ tool.port }}</template></strong><small>{{ toolId }}</small></div><label>操作<select v-model="command"><option v-for="item in options" :key="item" :value="item">{{ item }}{{ item !== 'SQL' && tool?.confirmationList?.includes(item) ? ' · 需确认' : '' }}</option></select></label><label v-if="command === 'SQL'">SQL 语句<textarea v-model="sql" class="mono sql-editor" rows="9" spellcheck="false" placeholder="输入单条 SQL"></textarea></label><label v-else>操作参数 <span class="muted">JSON</span><textarea v-model="args" class="mono" rows="12" spellcheck="false"></textarea></label><div class="permission-banner" :class="{ risk: risky }"><strong>{{ risky ? '变更操作 · 需要卡片确认' : '只读查询 · 直接执行' }}</strong><span>{{ risky ? '提交后不会立即修改数据，请在右侧卡片点击确认。' : '校验通过后直接执行并展示真实返回数据。' }}</span></div><p class="muted small">是否确认由服务端解析结果决定，不能由 Agent 或页面自行放行。</p><p v-if="error" class="error" role="alert">{{ error }}</p><button class="primary" :disabled="busy || !tool?.configured || !tool?.enabled">{{ busy ? '处理中…' : risky ? '生成确认卡片' : '执行查询' }}</button></form>
-      <section class="result-panel"><div class="panel-heading"><h2>执行结果</h2><span class="badge">{{ job?.status || '等待操作' }}</span></div><div v-if="!job" class="empty-state compact"><p>只读查询会直接返回数据；变更操作会在这里显示确认卡片。</p></div><template v-else><p class="small muted mono">{{ job.id }}</p><DatabaseOperationCard :job="job" :busy="busy" compact @decide="decide" /></template></section>
+      <section class="result-panel"><div class="panel-heading"><h2>执行结果</h2><span class="badge">{{ job?.status || '等待操作' }}</span></div><div v-if="!job" class="empty-state compact"><p>只读查询会直接返回数据；变更操作会在这里显示确认卡片。</p></div><template v-else><p class="small muted mono">{{ job.id }}</p><DatabaseOperationCard :job="job" :busy="busy" compact @decide="decide" /><button v-if="job.result?.truncated && job.result?.cursor !== '0'" class="secondary scan-continue" :disabled="busy" @click="continueScan">{{ busy ? '继续扫描中…' : '从当前游标继续扫描' }}</button></template></section>
     </div>
   </main>
 </template>

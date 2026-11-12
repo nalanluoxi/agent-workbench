@@ -1,0 +1,93 @@
+/* Keep every application page inside the browser viewport. Individual pages may
+   scroll, but they must not increase the app shell or create body-level overflow. */
+@media (min-width: 821px) {
+  .app-shell:not(.has-inspector) {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell:not(.has-inspector) > .sidebar {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-shell:not(.has-inspector) > .content-page {
+    height: 100dvh;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .app-shell:not(.has-inspector) > .memory-page-list {
+    overflow: hidden;
+  }
+}
+
+.content-page,
+.content-page > *,
+.resource-card,
+.policy-card,
+.dashboard-panel,
+.form-card,
+.result-panel,
+.split-page > * {
+  min-width: 0;
+}
+
+.page-heading > div,
+.panel-heading > div,
+.panel-title > div,
+.resource-heading,
+.fixed-target,
+.tool-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.resource-heading,
+.panel-heading,
+.panel-title {
+  flex-wrap: wrap;
+}
+
+.content-page pre,
+.content-page code,
+.content-page .mono {
+  max-width: 100%;
+}
+
+.content-page pre {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.content-page textarea {
+  max-width: 100%;
+  max-height: 55dvh;
+}
+
+.table-wrap,
+.result-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 820px) {
+  .page-heading,
+  .panel-heading,
+  .panel-title,
+  .tool-row {
+    align-items: stretch;
+  }
+
+  .page-heading > .primary,
+  .page-heading > .secondary,
+  .page-heading > .link-button {
+    width: 100%;
+  }
+}

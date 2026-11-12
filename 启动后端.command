@@ -25,6 +25,8 @@ export WORKBENCH_SMTP_HOST="smtp.qq.com"
 export WORKBENCH_SMTP_PORT="465"
 export WORKBENCH_SMTP_USER="${发件邮箱}"
 export WORKBENCH_SMTP_PASSWORD="${授权码}"
+export AGENTDESK_MEMORY_HYBRID_ENABLE="${AGENTDESK_MEMORY_HYBRID_ENABLE:-true}"
+export AGENTDESK_MEMORY_PIPELINE_DRYRUN="${AGENTDESK_MEMORY_PIPELINE_DRYRUN:-false}"
 unset 授权码
 
 if ! command -v redis-cli >/dev/null 2>&1; then

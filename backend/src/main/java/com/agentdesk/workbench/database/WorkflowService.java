@@ -65,8 +65,8 @@ public class WorkflowService {
         String snapshot = json(snapshotNode);
         long now = System.currentTimeMillis();
         transaction.executeWithoutResult(status -> {
-            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,workflow_version,workflow_snapshot,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    jobId, principal.userId(), request.runId(), config.id(), flow.version(), flowSnapshot, "execute", operation.write() ? "WAITING_CONFIRMATION" : "RUNNING", now, now);
+            db.update("INSERT INTO workflow_jobs(id,user_id,run_id,connection_id,workflow_version,workflow_snapshot,operation_snapshot,stage,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    jobId, principal.userId(), request.runId(), config.id(), flow.version(), flowSnapshot, snapshot, "execute", operation.write() ? "WAITING_CONFIRMATION" : "RUNNING", now, now);
             event(jobId, "understand", "DONE", "操作参数已接收");
             event(jobId, "validate", "DONE", "连接归属与操作类型已校验");
             if (operation.write()) {

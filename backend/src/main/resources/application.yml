@@ -1,6 +1,12 @@
 server:
   address: 127.0.0.1
   port: ${WORKBENCH_PORT:8765}
+agentdesk:
+  memory:
+    hybrid:
+      enable: ${AGENTDESK_MEMORY_HYBRID_ENABLE:${WORKBENCH_MEMORY_HYBRID_ENABLED:false}}
+    pipeline:
+      dryrun: ${AGENTDESK_MEMORY_PIPELINE_DRYRUN:${WORKBENCH_MEMORY_PIPELINE_DRYRUN:false}}
 spring:
   application:
     name: agent-workbench
@@ -24,6 +30,8 @@ workbench:
   memory-redis-port: ${WORKBENCH_MEMORY_REDIS_PORT:6379}
   memory-redis-password: ${WORKBENCH_MEMORY_REDIS_PASSWORD:}
   memory-redis-database: ${WORKBENCH_MEMORY_REDIS_DATABASE:15}
+  memory-hybrid-enabled: ${agentdesk.memory.hybrid.enable}
+  memory-pipeline-dryrun: ${agentdesk.memory.pipeline.dryrun}
   default-admin-enabled: ${WORKBENCH_DEFAULT_ADMIN_ENABLED:true}
   default-admin-email: ${WORKBENCH_DEFAULT_ADMIN_EMAIL:admin@admin.com}
   default-admin-password: ${WORKBENCH_DEFAULT_ADMIN_PASSWORD:admin}

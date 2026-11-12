@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS db_connections (
 CREATE INDEX IF NOT EXISTS idx_connections_user ON db_connections(user_id,type);
 CREATE TABLE IF NOT EXISTS workflow_jobs (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), run_id TEXT, connection_id TEXT NOT NULL,
-  workflow_version INTEGER NOT NULL DEFAULT 1, workflow_snapshot TEXT, stage TEXT NOT NULL, status TEXT NOT NULL,
+  workflow_version INTEGER NOT NULL DEFAULT 1, workflow_snapshot TEXT, operation_snapshot TEXT, stage TEXT NOT NULL, status TEXT NOT NULL,
   result_json TEXT, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_user ON workflow_jobs(user_id,created_at DESC);
@@ -105,6 +105,9 @@ CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), layer TEXT NOT NULL CHECK(layer IN ('L1','L2','L3')),
   content TEXT NOT NULL, source_session_id TEXT, source_message_id TEXT, fingerprint TEXT NOT NULL,
   manual INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE', version INTEGER NOT NULL DEFAULT 1,
+  source_kind TEXT NOT NULL DEFAULT 'USER_MESSAGE', confidence REAL NOT NULL DEFAULT 0.5,
+  verified INTEGER NOT NULL DEFAULT 0, manual_locked INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER, deleted_by TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id,layer,status,updated_at DESC);
@@ -129,6 +132,37 @@ CREATE TABLE IF NOT EXISTS memory_jobs (
   run_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), session_id TEXT NOT NULL, source_message_id TEXT NOT NULL,
   status TEXT NOT NULL, error TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_summaries (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), session_id TEXT NOT NULL REFERENCES sessions(id),
+  content_json TEXT NOT NULL, covered_from_turn INTEGER NOT NULL, covered_until_turn INTEGER NOT NULL,
+  model_id TEXT, model_version INTEGER, status TEXT NOT NULL DEFAULT 'ACTIVE', manual_locked INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1, deleted_at INTEGER, deleted_by TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  UNIQUE(user_id,session_id)
+);
+CREATE TABLE IF NOT EXISTS memory_sources (
+  user_id TEXT NOT NULL REFERENCES users(id), memory_id TEXT NOT NULL,
+  source_type TEXT NOT NULL, source_id TEXT NOT NULL, source_version INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL, PRIMARY KEY(memory_id,source_type,source_id)
+);
+CREATE TABLE IF NOT EXISTS memory_revisions (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+  version INTEGER NOT NULL, original_content TEXT NOT NULL, revised_content TEXT NOT NULL,
+  operation TEXT NOT NULL, manual INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL,
+  UNIQUE(user_id,target_type,target_id,version)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_revisions_target ON memory_revisions(user_id,target_type,target_id,version DESC);
+CREATE TABLE IF NOT EXISTS memory_change_proposals (
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), memory_id TEXT NOT NULL REFERENCES memories(id),
+  proposed_content TEXT NOT NULL, source_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'PENDING',
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_proposals_user ON memory_change_proposals(user_id,status,updated_at DESC);
+CREATE TABLE IF NOT EXISTS memory_task_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL REFERENCES users(id), task_id TEXT NOT NULL,
+  task_type TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_task_events ON memory_task_events(user_id,task_id,id);
 CREATE TABLE IF NOT EXISTS mcp_servers (
   id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL,
   transport TEXT NOT NULL CHECK(transport IN ('HTTP','STDIO')), url TEXT, command TEXT, args_json TEXT, bundle_hash TEXT,
